@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% comment %} <!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>All Job Applications</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="mb-4">All Job Applications</h1>
+
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover">
+                <thead class="thead-dark">
+                    <tr>
+                        {% if request.user.profile.is_hr %}
+                        <th scope="col">Schedule Meeting</th>
+                        {% endif %}
+                        <th scope="col">Applicant</th>
+                        <th scope="col">Job</th>
+                        <th scope="col">Gender</th>
+                        <th scope="col">Username</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for application in applications %}
+                        <tr>
+                            {% if request.user.profile.is_hr %}
+                            <td>
+                                <a href="{% url 'schedule_meeting' application.id %}" class="btn btn-primary btn-sm">Schedule Meeting</a>
+                            </td>
+                            {% endif %}
+                            <td>
+                                <a href="{% url 'applicant_detail' pk=application.id %}">{{ application.f_name }} {{ application.l_name }}</a>
+                            </td>
+                            <td>{{ application.job.job_name }}</td>
+                            <td>{{ application.gender }}</td>
+                            <td>{{ application.username }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</body>
+</html> {% endcomment %}
+
+
+
+
+{% block content %}
+    <div class="container mt-5">
+        <h1 class="display-4">Your Released Jobs and Applicants</h1>
+        <hr class="my-4">
+
+        {% for job_info in jobs_with_applicants %}
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h5 class="card-title">{{ job_info.job_name }}</h5>
+                    <p class="card-text">Location: {{ job_info.job_location }}, Type: {{ job_info.job_type }}</p>
+                    <a href="{% url 'view_applicants' job_info.slug %}" class="btn btn-primary">View Applicants</a>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% endblock content %}

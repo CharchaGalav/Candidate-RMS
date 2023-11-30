@@ -1,0 +1,22 @@
+<!-- templates/give_decision.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Give Decision</title>
+    <!-- Add necessary CSS/JS libraries -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1>Give Decision</h1>
+
+        <form method="post" action="{% url 'give_decision' applicant_id %}">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <button type="submit">Submit</button>
+        </form>
+        
+        
+    </div>
+</body>
+</html>

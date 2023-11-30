@@ -1,0 +1,100 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <div class="container mt-5">
+        <h1 class="mb-4">Applicant Detail</h1>
+
+        <div class="mt-3">
+                <form method="post" action="{% url 'view_profile' applicant_slug=application.slug %}">
+                    {% csrf_token %}
+                    <input type="submit" name="accept" class="btn btn-success" value="Accept" {% if application.is_accepted %}disabled{% endif %}>
+                </form>
+            
+
+            <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#rejectModal">Reject</button>
+        </div>
+
+        <!-- Display details of the applicant -->
+        <div class="card">
+            <div class="card-body">
+                <table class="table">
+                    <tr>
+                        <th scope="row">Name</th>
+                        <td>{{ application.f_name }} {{ application.l_name }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Job</th>
+                        <td>{{ application.job.job_name }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Gender</th>
+                        <td>{{ application.gender }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Username</th>
+                        <td>{{ application.username }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Email</th>
+                        <td>{{ application.email }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Phone Number</th>
+                        <td>{{ application.ph_num }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">LinkedIn</th>
+                        <td><a href="{{ application.linkedin }}" target="_blank">{{ application.linkedin }}</a></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">GitHub</th>
+                        <td><a href="{{ application.github }}" target="_blank">{{ application.github }}</a></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Resume</th>
+                        <td><a href="{{ application.resume.url }}" download>{{ application.resume.name }}</a></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">How did you hear about us?</th>
+                        <td>{{ application.hear }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Current City</th>
+                        <td>{{ application.current_city }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Postal Code</th>
+                        <td>{{ application.postal_code }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Available Date</th>
+                        <td>{{ application.available_date }}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="rejectModal" tabindex="-1" aria-labelledby="rejectModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post" action="{% url 'view_profile' applicant_slug=application.slug %}">
+                    {% csrf_token %}
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="rejectModalLabel">Reject Applicant</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>Reject reason</p>
+                        <textarea class="form-control" name="reject_reason" placeholder="Specify Reason here...." required></textarea>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="submit" name="reject" class="btn btn-danger">Reject</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+{% endblock %}

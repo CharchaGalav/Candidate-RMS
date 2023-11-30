@@ -1,0 +1,40 @@
+<!-- templates/candidate_reviews.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Candidate Reviews</title>
+    <!-- Add necessary CSS/JS libraries -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1>Candidate Reviews</h1>
+
+        <table class="table table-bordered table-striped">
+            <thead class="thead-dark">
+                <tr>
+                    <th scope="col">Decision</th>
+                    <th scope="col">Reason</th>
+                    <th scope="col">Reviewer</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for review in reviews %}
+                    <tr>
+                        <td>{{ review.decision }}</td>
+                        <td>{{ review.reason }}</td>
+                        <td>{{ review.reviewer.username }}</td>
+                    </tr>
+                {% endfor %}
+                    <tr>
+                        <td colspan="3">
+                            <a href="{% url 'give_decision' applicant_id %}">Give Decision</a>
+                        </td>
+                        </tr>
+            </tbody>
+        </table>
+        {% comment %} <button class="btn btn-primary" onclick="window.location.href='{% url 'give_decision' {{applicant_id }} %}'">Give Decision</button> {% endcomment %}
+                        
+    </div>
+</body>
+</html>

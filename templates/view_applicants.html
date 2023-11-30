@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <div class="container mt-5">
+        <h1 class="display-4">Applicants for {{ job.job_name }}</h1>
+        <hr class="my-4">
+
+        {% if applicants %}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th scope="col">Applicant Name</th>
+                        <th scope="col">Gender</th>
+                        <th scope="col">Available Date</th>
+                        <th scope="col">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for applicant in applicants %}
+                        <tr>
+                            <td>{{ applicant.f_name }} {{ applicant.l_name }}</td>
+                            <td>{{ applicant.gender }}</td>
+                            <td>{{ applicant.available_date }}</td>
+                            <td>
+                                <a href="{% url 'view_profile' applicant.slug %}" class="btn btn-primary">View Profile</a>
+                                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#scheduleMeeting{{ applicant.slug }}">Schedule Meeting</button>
+                                <div class="modal fade" id="scheduleMeeting{{ applicant.slug }}" tabindex="-1" aria-labelledby="scheduleMeetingLabel{{ applicant.slug }}" aria-hidden="true" data-bs-backdrop="false">
+                                    <div class="modal-dialog modal-dialog-centered modal-md">
+                                        <div class="modal-content">
+                                            <form method="post">
+                                                <div class="modal-header">
+                                                    <h5 class="modal-title" id="scheduleMeetingLabel{{ applicant.slug }}">Schedule Meeting</h5>
+                                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                                </div>
+                                                <div class="modal-body">
+                                                    {% csrf_token %}
+                                                    
+                                                    <label for="scheduled_meet_date">Scheduled Date</label>
+                                                    <input type="date" class="form-control" name="scheduled_meet_date" required>
+
+                                                    <label for="scheduled_meet_time">Scheduled Time</label>
+                                                    <input type="time" class="form-control" name="scheduled_meet_time" required>
+
+                                                    <label for="scheduled_meet_link">Meeting Link</label>
+                                                    <input type="url" class="form-control" name="scheduled_meet_link" placeholder="Enter Meeting Link" required>
+
+                                                    <input type="hidden" name="job_application" value="{{ applicant.slug }}">
+                                                    <label for="scheduled_meet_attendees">Attendees</label>
+                                                    <div class="form-group">
+                                                        {{ form.scheduled_meet_attendees.errors }}
+                                                        {% for choice in form.scheduled_meet_attendees %}
+                                                            <div class="form-check">
+                                                                {{ choice.tag }}
+                                                                <label class="form-check-label" for="{{ choice.id_for_label }}">{{ choice.choice_label }}</label>
+                                                            </div>
+                                                        {% endfor %}
+                                                    </div>
+                                                </div>
+                                                <div class="modal-footer">
+                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                                    <button type="submit" class="btn btn-primary">Schedule Meeting</button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p>No applicants for this job.</p>
+        {% endif %}
+    </div>
+{% endblock content %}
