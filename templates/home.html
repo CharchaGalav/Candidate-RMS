@@ -16,6 +16,14 @@
                 <button class="btn btn-primary btn-block" onclick="window.location.href='{% url 'logs' %}'">Logs</button>
             </div>
 
+            {% if not user.profile.is_hr and not user.profile.is_teamlead and not user.profile.is_teamMember and not user.profile.is_manager and not user.profile.is_onboardingHr  %}
+            <div class="col-md-6 mb-3">
+                <button class="btn btn-primary btn-block" onclick="window.location.href='{% url 'applied_jobs' %}'">All your applied Jobs</button>
+            </div>
+            {% endif %}
+
+
+
             {% if request.user.profile.is_hr %}
                 <div class="col-md-6 mb-3">
                     <button class="btn btn-primary btn-block" onclick="window.location.href='{% url 'release_job' %}'">Release New Job</button>
@@ -25,6 +33,12 @@
             {%  if request.user.profile.is_hr or user.profile.is_teamlead or user.profile.is_teamMember or user.profile.is_manager or user.profile.is_onboardingHr %}
                 <div class="col-md-6 mb-3">
                     <button class="btn btn-primary btn-block" onclick="window.location.href='{% url 'view_job_applications' %}'">Show All Job Applications</button>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <button class="btn btn-primary btn-block" onclick="window.location.href='{% url 'all_accepted_candidates' %}'">All Accepted Candidates</button>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <button class="btn btn-primary btn-block" onclick="window.location.href='{% url 'all_rejected_candidates' %}'">All Rejected Candidates</button>
                 </div>
             {% endif %}
 
@@ -37,12 +51,6 @@
             {% if user.profile.is_teamlead  %}
                 <div class="col-md-6 mb-3">
                     <button class="btn btn-primary btn-block" onclick="window.location.href='{% url 'all_candidate_reviews' %}'">All Candidate Reviews</button>
-                </div>
-            {% endif %}
-
-            {% if user.profile.is_teamlead or user.profile.is_manager %}
-                <div class="col-md-6 mb-3">
-                    <button class="btn btn-primary btn-block" onclick="window.location.href='{% url 'accepted_candidates_by_team_lead' %}'">Accepted Candidates by Team Lead</button>
                 </div>
             {% endif %}
 

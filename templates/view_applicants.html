@@ -23,7 +23,9 @@
                             <td>{{ applicant.available_date }}</td>
                             <td>
                                 <a href="{% url 'view_profile' applicant.slug %}" class="btn btn-primary">View Profile</a>
+                                {% if user.profile.is_hr %}
                                 <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#scheduleMeeting{{ applicant.slug }}">Schedule Meeting</button>
+                                {% endif %}
                                 <div class="modal fade" id="scheduleMeeting{{ applicant.slug }}" tabindex="-1" aria-labelledby="scheduleMeetingLabel{{ applicant.slug }}" aria-hidden="true" data-bs-backdrop="false">
                                     <div class="modal-dialog modal-dialog-centered modal-md">
                                         <div class="modal-content">

@@ -3,17 +3,23 @@
 {% block content %}
     <div class="container mt-5">
         <h1 class="mb-4">Applicant Detail</h1>
-
+        {% if user.profile.is_hr %}
         <div class="mt-3">
                 <form method="post" action="{% url 'view_profile' applicant_slug=application.slug %}">
                     {% csrf_token %}
-                    <input type="submit" name="accept" class="btn btn-success" value="Accept" {% if application.is_accepted %}disabled{% endif %}>
+                    <input type="submit" name="accept" class="btn btn-success" value="Accept" {% if application.hr_is_accepted or application.rejectiondetails_set.exists  %}disabled{% endif %}>
                 </form>
             
 
-            <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#rejectModal">Reject</button>
+            <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#rejectModal{{ application.slug }}">Reject</button>
         </div>
+        {% endif %}
 
+        {% if user.profile.is_manager %}
+        
+            {% comment %} <a href="{% url 'manager_decision_view' applicant=application.username %}" class="btn btn-primary">Give Decision</a> {% endcomment %}
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#decisionModal{{ application.slug }}">Give Decision</button>
+        {% endif %}
         <!-- Display details of the applicant -->
         <div class="card">
             <div class="card-body">
@@ -75,7 +81,7 @@
         </div>
     </div>
 
-    <div class="modal fade" id="rejectModal" tabindex="-1" aria-labelledby="rejectModalLabel" aria-hidden="true">
+    <div class="modal fade" id="rejectModal{{ application.slug }}" tabindex="-1" aria-labelledby="rejectModalLabel{{ application.slug }}" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
                 <form method="post" action="{% url 'view_profile' applicant_slug=application.slug %}">
@@ -86,11 +92,64 @@
                     </div>
                     <div class="modal-body">
                         <p>Reject reason</p>
-                        <textarea class="form-control" name="reject_reason" placeholder="Specify Reason here...." required></textarea>
+                        <label for="title_of_rejection" > Title of Rejection</label>
+                        <input type="text" class="form-control" name="title_of_rejection" placeholder="Title of Rejection" required>
+                        <label for="reason">Reason</label>
+                        <textarea class="form-control" name="reason" placeholder="Specify Reason here...." required></textarea>
+
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                         <button type="submit" name="reject" class="btn btn-danger">Reject</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+
+    <div class="modal fade" id="decisionModal{{ application.slug }}" tabindex="-1" aria-labelledby="decisionModalLabel{{ application.slug }}" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post" action="{% url 'view_profile' applicant_slug=application.slug %}">
+                    
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="decisionModalLabel">Give Decision</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        {% csrf_token %}
+                    
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="decision" id="accept_with_meeting" value="accept_with_meeting" required>
+                            <label class="form-check-label" for="accept_with_meeting">Accept with Meeting</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="decision" id="reject" value="reject" required>
+                            <label class="form-check-label" for="reject">Reject</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="decision" id="accept_without_meeting" value="accept_without_meeting" required>
+                            <label class="form-check-label" for="accept_without_meeting">Accept without Meeting</label>
+                        </div>
+                        <label for="reason">Reason</label>
+                        <textarea class="form-control" name="reason" placeholder="Specify Reason here...." required></textarea>
+                    
+                        <label for="meeting_link">Meeting Link</label>
+                        <input type="text" class="form-control" name="meeting_link" placeholder="Meeting Link" required>
+                    
+                        <label for="meeting_date">Meeting Date</label>
+                        <input type="date" class="form-control" name="meeting_date" placeholder="Meeting Date" required>
+                    
+                        <label for="meeting_time">Meeting Time</label>
+                        <input type="time" class="form-control" name="meeting_time" placeholder="Meeting Time" required>
+                        
+                    </div>
+                    
+                    
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="submit" name="givedecision" class="btn btn-primary">Submit</button>
                     </div>
                 </form>
             </div>

@@ -66,6 +66,14 @@ class ApplyNowView(LoginRequiredMixin, View):
             
         return render(request, 'apply.html', {'form': form, 'job': job})
 
+class AppliedJobs(LoginRequiredMixin, View):
+    template_name = 'applied_jobs.html'
+
+    def get(self, request):
+        user = request.user
+        job_applications = JobApplication.objects.filter(user=user)
+        return render(request, self.template_name, {'job_applications': job_applications})
+
 class CustomLoginView(View):
     template_name = 'registration/login.html'
 
@@ -138,12 +146,16 @@ class ViewJobApplications(UserPassesTestMixin, View):
     template_name = 'view_job_applications.html'
 
     def test_func(self):
-        return self.request.user.is_authenticated and (self.request.user.profile.is_hr )
+        return self.request.user.is_authenticated 
 
     def get(self, request):
         user = request.user
-        released_jobs = Job.objects.filter(released_by=user)
         job_info_with_applicants = []
+
+        if user.profile.is_hr:
+            released_jobs = Job.objects.filter(released_by=user)
+        elif user.profile.is_teamlead or user.profile.is_teamMember or user.profile.is_manager or user.profile.is_mainHr or user.profile.is_onboardingHr:
+            released_jobs = Job.objects.filter(released_by__profile__is_hr=True) 
 
         for job in released_jobs:
             job_info = {
@@ -165,7 +177,14 @@ class ViewApplicants(View):
 
     def get(self, request, job_slug):
         job = get_object_or_404(Job, slug=job_slug)
-        applicants = JobApplication.objects.filter(job=job)
+        if self.request.user.profile.is_hr:
+            applicants = JobApplication.objects.filter(job=job)
+        elif self.request.user.profile.is_teamlead or self.request.user.profile.is_teamMember:
+            applicants = JobApplication.objects.filter(job=job, hr_is_accepted = True)
+        elif self.request.user.profile.is_manager:
+            applicants = JobApplication.objects.filter(job=job, teamlead_is_accepted = True)
+        elif self.request.user.profile.is_mainHr:
+            applicants = JobApplication.objects.filter(job=job, manager_is_accepted = True)
         form = ScheduleMeetingForm()
         return render(request, self.template_name, {'job': job, 'applicants': applicants , 'form': form})
     
@@ -227,109 +246,122 @@ class ViewProfile(LoginRequiredMixin, View):
     template_name = 'view_profile.html'
 
     def get(self, request, applicant_slug):
+        form = ManagerDecisionForm()
         job_application = get_object_or_404(JobApplication, slug=applicant_slug)
+        
         return render(request, self.template_name, {'application': job_application})
 
     def post(self, request, applicant_slug):
         job_application = get_object_or_404(JobApplication, slug=applicant_slug)
+        form = ManagerDecisionForm(request.POST)
 
         # Accept action
         if 'accept' in request.POST:
-            if not job_application.is_accepted:
-                job_application.is_accepted = True
+            if not job_application.hr_is_accepted:
+                job_application.hr_is_accepted = True
                 job_application.save()  
 
         # Reject action
         elif 'reject' in request.POST:
-            form = YourRejectForm(request.POST)
+            form = RejectionDetailsForm(request.POST)
             if form.is_valid():
-                # Process rejection and redirect as needed
-                # For example, you can save the rejection reason to the database
-                # and then redirect to the appropriate page
-                messages.success(request, 'Applicant has been rejected.')
-                return redirect('view_job_applications')  # Change to your actual URL
-
-        return render(request, self.template_name, {'application': job_application})
-
-# class ScheduleMeetingView(UserPassesTestMixin, View):
-#     template_name = 'schedule_meeting.html'
-
-#     def test_func(self):
-#         return self.request.user.is_authenticated and self.request.user.profile.is_hr
-
-#     def get(self, request, application_id):
-#         application = JobApplication.objects.get(pk=application_id)
-#         form = ScheduleMeetingForm()
-#         return render(request, self.template_name, {'form': form, 'application': application})
-
-#     def post(self, request, application_id):
-#         application = JobApplication.objects.get(pk=application_id)
-#         form = ScheduleMeetingForm(request.POST)
-
-#         if form.is_valid():
-#             meeting_schedule = form.save(commit=False)
-#             meeting_schedule.job_application = application  
-#             meeting_schedule.save()
-#             meeting_schedule.scheduled_meet_attendees.set(form.cleaned_data['scheduled_meet_attendees'])
+                # print("Form is valid")
+                rejection_details = form.save(commit=False)
+                rejection_details.job_application = job_application
+                rejection_details.rejected_by = request.user
+                rejection_details.logs = timezone.localtime(timezone.now())
+                rejection_details.save()
+                if job_application.hr_is_accepted == True:
+                    job_application.hr_is_accepted = False
+                    job_application.save()
+                return redirect('view_applicants' , job_slug=job_application.job.slug)
             
-#             meeting_schedule.logs = timezone.now()
+        
+        elif 'givedecision' in request.POST:
+            form = ManagerDecisionForm(request.POST)
+            if form.is_valid():
+                    print("Form is valid")
+                    decision = form.cleaned_data['decision']
+                    print("DEcsion")
+                    meeting_link = form.cleaned_data.get('meeting_link', '')
+                    meeting_date = form.cleaned_data.get('meeting_date', '')
+                    meeting_time = form.cleaned_data.get('meeting_time', '')
 
-#             meeting_schedule.save()
-            
-#             send_mail(
-#                 f"Meeting scheduled for {meeting_schedule.job_application.f_name} {meeting_schedule.job_application.l_name}",
-#                 f"A meeting has been scheduled for {meeting_schedule.job_application.f_name} "
-#                 f"{meeting_schedule.job_application.l_name} on {meeting_schedule.scheduled_meet_date}. "
-#                 f"Please join using this link: {meeting_schedule.scheduled_meet_link}",
-#                 'EMAIL_HOST_USER',
-#                 [meeting_schedule.job_application.email],
-#                 fail_silently=False,
-#             )
-#             self.send_email_to_attendees(meeting_schedule.scheduled_meet_attendees.all(), meeting_schedule)
+                    applicant_user = User.objects.get(username=job_application.user)
+                    
+                    decision_instance = ManagerDecision(
+                        applicant=job_application.user,
+                        decision=form.cleaned_data['decision'],
+                        reason=form.cleaned_data.get('reason', ''),
+                        meeting_link=meeting_link,
+                        meeting_date=meeting_date,
+                        meeting_time=meeting_time,
+                        email=applicant_user.email,
+                    )
+                    decision_instance.save()
+                    job_application.manager_is_accepted = True
+                    job_application.save()
+                    if decision == 'accept_with_meeting':
+                        # Send email to applicant
+                        send_mail(
+                            f"Meeting scheduled for {job_application.user}",
+                            f"A meeting has been scheduled for {job_application.user} on {meeting_date} at {meeting_time}. "
+                            f"Please join using this link: {meeting_link}",
+                            'EMAIL_HOST_USER',
+                            [applicant_user.email],
+                            fail_silently=False,
+                        )
+                    return redirect('home')
+         
 
-#             return redirect('view_job_applications')
+        return render(request, self.template_name, {'application': job_application, 'form': form})
 
-#         return render(request, self.template_name, {'form': form, 'application': application})
 
-#     def send_email_to_attendees(self, attendees, meeting_schedule):
-#         from_email = 'EMAIL_HOST_USER'
-#         for attendee in attendees:
-#             to_email = attendee.email
-#             print(to_email)
-#             subject = f"Meeting scheduled for {meeting_schedule.job_application.f_name} {meeting_schedule.job_application.l_name}"
-#             message = f"Hi {attendee.first_name},\n\n" \
-#                       f"A meeting has been scheduled for {meeting_schedule.job_application.f_name} " \
-#                       f"{meeting_schedule.job_application.l_name} on {meeting_schedule.scheduled_meet_date}. " \
-#                       f"Please join using this link: {meeting_schedule.scheduled_meet_link}"
-#             count = send_mail(subject, message, from_email, [to_email])
-#             if count > 0:
-#                 print("Email sent successfully!")
-#             else:       
-#                 print("Email not sent.")
+class AllAcceptedCandidates(UserPassesTestMixin, View):
+    template_name = 'all_accepted_candidates.html'
 
-# from django.urls import reverse_lazy
+    def test_func(self):
+        return self.request.user.is_authenticated and (self.request.user.profile.is_hr or self.request.user.profile.is_teamlead or self.request.user.profile.is_manager)
 
-# class ScheduleMeetingView(View):
-#     template_name = 'schedule_meeting.html'
-#     success_template_name = 'success_template.html'
+    def get(self, request):
+        user = self.request.user
+        if user.profile.is_hr:
+            accepted_candidates = JobApplication.objects.filter(hr_is_accepted=True)
+            print(accepted_candidates)
+        elif user.profile.is_teamlead:
+            accepted_candidates = JobApplication.objects.filter(teamlead_is_accepted=True)
+        elif user.profile.is_manager:
+            accepted_candidates = JobApplication.objects.filter(manager_is_accepted=True)
+        else:
+            accepted_candidates = JobApplication.objects.none()
 
-#     def get(self, request, *args, **kwargs):
-#         applicant = get_object_or_404(JobApplication, slug=kwargs['applicant_slug'])
-#         form = ScheduleMeetingForm()
-#         return render(request, self.template_name, {'form': form, 'applicant': applicant})
+        return render(request, self.template_name, {'candidates': accepted_candidates})
 
-#     def post(self, request, *args, **kwargs):
-#         applicant = get_object_or_404(JobApplication, slug=kwargs['applicant_slug'])
-#         form = ScheduleMeetingForm(request.POST)
 
-#         if form.is_valid():
-#             meeting_schedule = form.save(commit=False)
-#             meeting_schedule.job_application = applicant
-#             meeting_schedule.scheduled_by = request.user
-#             meeting_schedule.save()
-#             return render(request, self.success_template_name)  # You can redirect to a success page or render a success template
+class AllRejectedCandidates(UserPassesTestMixin, View):
+    template_name = 'all_rejected_candidates.html'
 
-#         return render(request, self.template_name, {'form': form, 'applicant': applicant})   
+    def test_func(self):
+        return self.request.user.is_authenticated and (
+            self.request.user.profile.is_hr or
+            self.request.user.profile.is_teamlead or
+            self.request.user.profile.is_manager
+        )
+
+    def get(self, request):
+        user = self.request.user
+        if user.profile.is_hr:
+            rejected_candidates = RejectionDetails.objects.filter(rejected_by=user)
+            print(rejected_candidates)
+        elif user.profile.is_teamlead:
+            rejected_candidates = RejectionDetails.objects.filter(rejected_by=user)
+        elif user.profile.is_manager:
+            rejected_candidates = RejectionDetails.objects.filter(rejected_by=user)
+        else:
+            rejected_candidates = RejectionDetails.objects.none()
+
+        return render(request, self.template_name, {'candidates': rejected_candidates, 'status': 'Rejected'})
+
 
 class ViewScheduledMeetings(UserPassesTestMixin, View):
     template_name = 'view_scheduled_meetings.html'
@@ -341,7 +373,7 @@ class ViewScheduledMeetings(UserPassesTestMixin, View):
     def get(self, request):
         user = self.request.user
         if user.profile.is_hr:
-            meetings = MeetingSchedule.objects.all()
+            meetings = MeetingSchedule.objects.filter(scheduled_by=user)
         elif user.profile.is_teamlead:
             meetings = MeetingSchedule.objects.filter(scheduled_meet_attendees=user)
         elif user.profile.is_teamMember:
@@ -354,13 +386,13 @@ class ViewScheduledMeetings(UserPassesTestMixin, View):
 class ReviewMeetingView(LoginRequiredMixin, View):
     template_name = 'review_meeting.html'
 
-    def get(self, request, meeting_id):
-        meeting = MeetingSchedule.objects.get(pk=meeting_id)
+    def get(self, request, applicant_slug):
+        meeting = MeetingSchedule.objects.get(job_application__slug=applicant_slug)
         form = MeetingReviewForm(initial={'reviewer': request.user})  # Set the initial value for reviewer
         return render(request, self.template_name, {'form': form, 'meeting': meeting})
 
-    def post(self, request, meeting_id):
-        meeting = MeetingSchedule.objects.get(pk=meeting_id)
+    def post(self, request, applicant_slug):
+        meeting = MeetingSchedule.objects.get(job_application__slug=applicant_slug)
         form = MeetingReviewForm(request.POST)
 
         if form.is_valid():
@@ -393,6 +425,7 @@ class AllCandidateReviewsView(View):
                 'meeting_schedule__job_application__f_name',
                 'meeting_schedule__job_application__l_name',
                 'meeting_schedule__job_application__job__job_name'
+                
             ).annotate(num_reviews=Count('id'))
 
             return render(request, self.template_name, {'distinct_applicants': distinct_applicants})
@@ -405,102 +438,35 @@ class CandidateReviewsView(View):
     def get(self, request, applicant_id):
         user = self.request.user
         applicant_reviews = MeetingReview.objects.filter(meeting_schedule__job_application=applicant_id)
-        # print(applicant_reviews)
-        return render(request, self.template_name, {'reviews': applicant_reviews, 'applicant_id': applicant_id})
+        applicant = JobApplication.objects.get(id=applicant_id)
+        return render(request, self.template_name, {'reviews': applicant_reviews, 'applicant_id': applicant_id, 'applicant': applicant})
     
-
-
-class TeamLeadDecisionView(View):
-    template_name = 'give_decision.html'  # Update this with your actual template name
-
-    def get(self, request, applicant_id):
-        form = TeamLeadDecisionForm()
-        return render(request, self.template_name, {'form': form, 'applicant_id': applicant_id})
-
     def post(self, request, applicant_id):
-        form = TeamLeadDecisionForm(request.POST)
+        job_application = get_object_or_404(JobApplication, id=applicant_id)
 
-        if form.is_valid():
-            decision_instance = form.save(commit=False)
-            decision_instance.reviewer = request.user
-            decision_instance.logs = timezone.localtime(timezone.now())
-            meeting_reviews = MeetingReview.objects.filter(meeting_schedule__job_application__id=applicant_id)
-            if meeting_reviews.exists():
-                meeting_review = meeting_reviews.first()  # Use the first object, or implement custom logic
-                decision_instance.applicant = meeting_review.meeting_schedule.job_application.user
-            decision_instance.save()
-            return redirect('all_candidate_reviews')
+        # Accept action
+        if 'accept' in request.POST:
+            if not job_application.teamlead_is_accepted:
+                job_application.teamlead_is_accepted = True
+                job_application.save()  
 
-        return render(request, self.template_name, {'form': form, 'applicant_id': applicant_id})
-    
-class AcceptedCandidatesbyTeamLead(View):
-    template_name = 'accepted_candidates_by_team_lead.html'
+        # Reject action
+        elif 'reject' in request.POST:
+            form = RejectionDetailsForm(request.POST)
+            if form.is_valid():
+                print("Form is valid")
+                rejection_details = form.save(commit=False)
+                rejection_details.job_application = job_application
+                rejection_details.rejected_by = request.user
+                rejection_details.logs = timezone.localtime(timezone.now())
+                rejection_details.save()
+                if job_application.teamlead_is_accepted == True:
+                    job_application.teamlead_is_accepted = False
+                    job_application.save()
+                return redirect('all_candidate_reviews')
+        
+        return render(request, self.template_name, { 'applicant_id': applicant_id})  
 
-    def get(self, request):
-        user = self.request.user
-        if user.profile.is_teamlead or user.profile.is_manager:
-            accepted_candidates = TeamLeadDecision.objects.filter(decision='accept')
-
-            # Retrieve relevant information for each candidate
-            candidate_data = []
-            for decision in accepted_candidates:
-                job_application = JobApplication.objects.get(user=decision.applicant)
-                meeting_reviews = MeetingReview.objects.filter(meeting_schedule__job_application=job_application)
-                if meeting_reviews.exists():
-                    meeting_review = meeting_reviews.first()
-                    candidate_data.append({
-                        'applicant': job_application,
-                        'decision': decision.decision,
-                        'reason': decision.reason,
-                        'meeting_review': meeting_review,
-                    })
-
-            return render(request, self.template_name, {'candidates_data': candidate_data})
-        else:
-            return redirect('home')
-
-class ManagerDecisionView(View):
-    template_name = 'manager_decision.html'
-
-    def get(self, request, applicant):
-        form = ManagerDecisionForm()
-        return render(request, self.template_name, {'form': form, 'applicant': applicant})
-
-    def post(self, request, applicant):
-        form = ManagerDecisionForm(request.POST)
-
-        if form.is_valid():
-            decision = form.cleaned_data['decision']
-            meeting_link = form.cleaned_data.get('meeting_link', '')
-            meeting_date = form.cleaned_data.get('meeting_date', '')
-            meeting_time = form.cleaned_data.get('meeting_time', '')
-
-            applicant_user = User.objects.get(username=applicant)
-
-            decision_instance = ManagerDecision(
-                applicant=applicant,
-                decision=form.cleaned_data['decision'],
-                reason=form.cleaned_data.get('reason', ''),
-                approved_by_manager=form.cleaned_data.get('approved_by_manager', False),
-                meeting_link=meeting_link,
-                meeting_date=meeting_date,
-                meeting_time=meeting_time,
-                email=applicant_user.email,
-            )
-            decision_instance.save()
-            if decision == 'accept_with_meeting':
-                # Send email to applicant
-                send_mail(
-                    f"Meeting scheduled for {applicant}",
-                    f"A meeting has been scheduled for {applicant} on {meeting_date} at {meeting_time}. "
-                    f"Please join using this link: {meeting_link}",
-                    'EMAIL_HOST_USER',
-                    [applicant_user.email],
-                    fail_silently=False,
-                )
-            return redirect('home')  # Redirect to the home page after submission
-
-        return render(request, self.template_name, {'form': form, 'applicant': applicant})
 
 class AcceptedCandidatesbyManager(View):
     template_name = 'accepted_candidate_by_manager.html'

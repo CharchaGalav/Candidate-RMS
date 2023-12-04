@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <div class="container mt-5">
+        <h1 class="mb-4">All Accepted Candidates</h1>
+
+        {% if candidates %}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Job</th>
+                        <th>Gender</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for candidate in candidates %}
+                        <tr>
+                            <td>{{ candidate.f_name }} {{ candidate.l_name }}</td>
+                            <td>{{ candidate.job.job_name }}</td>
+                            <td>{{ candidate.gender }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p>No accepted candidates available.</p>
+        {% endif %}
+    </div>
+{% endblock %}

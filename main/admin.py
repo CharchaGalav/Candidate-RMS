@@ -12,6 +12,7 @@ admin.site.register(Profile, UserProfileAdmin)
 admin.site.register(Job)
 admin.site.register(JobApplication)
 admin.site.register(MeetingSchedule)
+admin.site.register(RejectionDetails)
 admin.site.register(MeetingReview)
 admin.site.register(TeamLeadDecision)
 

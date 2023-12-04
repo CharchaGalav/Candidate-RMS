@@ -1,12 +1,6 @@
-<!-- templates/all_candidate_reviews.html -->
-<!DOCTYPE html>
-<html>
-<head>
-    <title>All Candidate Reviews</title>
-    <!-- Add necessary CSS/JS libraries -->
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
-</head>
-<body>
+{% extends 'base.html' %}
+
+{% block content %}
     <div class="container mt-5">
         <h1 class="mb-4">All Candidate Reviews</h1>
 
@@ -33,5 +27,4 @@
             </tbody>
         </table>
     </div>
-</body>
-</html>
+{% endblock %}

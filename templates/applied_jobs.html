@@ -1,0 +1,22 @@
+<!-- applied_jobs.html -->
+{% extends 'base.html' %}
+
+{% block content %}
+    <div class="container mt-5">
+        <h1 class="mb-4">Your Applied Jobs</h1>
+
+        {% if job_applications %}
+            <ul class="list-group">
+                {% for application in job_applications %}
+                    <li class="list-group-item">
+                        <h5>{{ application.job.job_name }}</h5>
+                        <p>Applied on: {{ application.logs }}</p>
+                        <!-- Add more details as needed -->
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p>You haven't applied to any jobs yet.</p>
+        {% endif %}
+    </div>
+{% endblock %}

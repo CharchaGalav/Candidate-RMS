@@ -67,7 +67,9 @@ class JobApplication(models.Model):
     postal_code = models.CharField(max_length=10)
     available_date = models.DateField()
     logs = models.DateTimeField(auto_now_add=True, null=True, blank=True)
-    is_accepted = models.BooleanField(default=False)
+    hr_is_accepted = models.BooleanField(default=False)
+    teamlead_is_accepted = models.BooleanField(default=False)
+    manager_is_accepted = models.BooleanField(default=False)
     slug = models.SlugField(unique=True, blank=True, null=True)
 
     def save(self, *args, **kwargs):
@@ -92,7 +94,18 @@ class MeetingSchedule(models.Model):
     logs = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     def __str__(self):
         return f"Meeting for {self.job_application.user.username}"
-    
+
+
+class RejectionDetails(models.Model):
+    job_application = models.ForeignKey('JobApplication', on_delete=models.CASCADE)
+    rejected_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    title_of_rejection = models.CharField(max_length=255)
+    reason = models.TextField()
+    logs = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+
+    def __str__(self):
+        return f"Rejection for {self.job_application.user.username}"
+
     
 class MeetingReview(models.Model):
     meeting_schedule = models.ForeignKey('MeetingSchedule', on_delete=models.CASCADE)
