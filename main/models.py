@@ -70,8 +70,12 @@ class JobApplication(models.Model):
     hr_is_accepted = models.BooleanField(default=False)
     teamlead_is_accepted = models.BooleanField(default=False)
     manager_is_accepted = models.BooleanField(default=False)
+    mainHr_is_accepted = models.BooleanField(default=False)
+    mainHr_to_hr = models.BooleanField(default=False)
+    meetscheduled_by_hr = models.BooleanField(default=False)
     slug = models.SlugField(unique=True, blank=True, null=True)
-
+    logsjson = models.TextField(blank=True, null=True)
+    first_view = models.BooleanField(default=False)
     def save(self, *args, **kwargs):
         # Create a unique and strong slug using the applicant's name and a timestamp
         timestamp_str = str(int(self.logs.timestamp()))  # Use logs or another timestamp field
@@ -104,7 +108,16 @@ class RejectionDetails(models.Model):
     logs = models.DateTimeField(auto_now_add=True, null=True, blank=True)
 
     def __str__(self):
-        return f"Rejection for {self.job_application.user.username}"
+        return f"Rejection for {self.job_application.user.username} by {self.rejected_by.username}"
+    
+class AcceptanceDetails(models.Model):
+    job_application = models.ForeignKey('JobApplication', on_delete=models.CASCADE)
+    accepted_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    title_of_acceptance = models.CharField(max_length=255)
+    reason = models.TextField()
+
+    def __str__(self):
+        return f"Acceptance for {self.job_application.user.username} by {self.accepted_by.username}"
 
     
 class MeetingReview(models.Model):
@@ -115,46 +128,25 @@ class MeetingReview(models.Model):
 
     def __str__(self):
         applicant_name = f"{self.meeting_schedule.job_application.f_name} {self.meeting_schedule.job_application.l_name}"
-        return f"Review for {applicant_name}"
+        return f"Review for {applicant_name} by {self.reviewer.username}"
     
-class TeamLeadDecision(models.Model):
-    ACCEPT = 'accept'
-    REJECT = 'reject'
-    DECISION_CHOICES = [
-        (ACCEPT, 'Accept'),
-        (REJECT, 'Reject'),
-    ]
 
-    applicant = models.OneToOneField(User, on_delete=models.CASCADE, related_name='decision_review', null=True, blank=True)
-    decision = models.CharField(max_length=10, choices=DECISION_CHOICES)
-    reason = models.TextField()
-    reviewer = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
-    logs = models.DateTimeField(auto_now_add=True, null=True, blank=True)
-    
-    def __str__(self):
-        if self.applicant:          
-            return f"{self.applicant} - Decision: {self.decision}"
-        else:
-            return f"Decision: {self.decision} (No MeetingReview)"
-
-
-class ManagerDecision(models.Model):
-    applicant = models.CharField(max_length=255)
+class ManagerMainHrDecision(models.Model):
+    applicant = models.ForeignKey('JobApplication', on_delete=models.CASCADE)
     decision = models.CharField(max_length=50, blank=True, null=True)
-    reason = models.TextField(blank=True, null=True)
-    approved_by_manager = models.BooleanField(default=False)
     meeting_link = models.URLField(blank=True, null=True)
     meeting_date = models.DateField(blank=True, null=True)
     meeting_time = models.TimeField(blank=True, null=True)
+    scheduled_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
     email = models.EmailField(blank=True, null=True)
     log = models.DateTimeField(auto_now_add=True, null=True, blank=True)
 
     def __str__(self):
-        return self.applicant
+        return f"{self.applicant.user.username} - {self.decision} by {self.scheduled_by.username}"
 
 
 class EmailLog(models.Model):
-    applicant = models.CharField(max_length=255, null=True, blank=True)
+    applicant = models.ForeignKey('JobApplication', on_delete=models.CASCADE, null=True, blank=True)
     sender_name = models.CharField(max_length=255)
     to_email = models.EmailField()
     subject = models.CharField(max_length=255)
@@ -162,4 +154,6 @@ class EmailLog(models.Model):
     logs = models.DateTimeField(auto_now_add=True, null=True, blank=True)
 
     def __str__(self):
-        return f"{self.sender_name} to {self.to_email} - {self.subject}"
+        return f"{self.sender_name} to {self.applicant.user.username} - {self.subject}"
+    
+

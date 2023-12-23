@@ -18,19 +18,10 @@ urlpatterns = [
     path('view_job_applications/', ViewJobApplications.as_view(), name='view_job_applications'),
     path('view-applicants/<slug:job_slug>/', ViewApplicants.as_view(), name='view_applicants'),
     path('view-profile/<slug:applicant_slug>/', ViewProfile.as_view(), name='view_profile'),
-    path('all_accepted_candidates/', AllAcceptedCandidates.as_view(), name='all_accepted_candidates'),
-    path('all_rejected_candidates/', AllRejectedCandidates.as_view(), name='all_rejected_candidates'),
-
-
     path('view_scheduled_meetings/', ViewScheduledMeetings.as_view(), name='view_scheduled_meetings'),
     path('review_meeting/<slug:applicant_slug>/', ReviewMeetingView.as_view(), name='review_meeting'),
-    path('all_candidate_reviews/', AllCandidateReviewsView.as_view(), name='all_candidate_reviews'),
-    path('candidate_reviews/<int:applicant_id>/', CandidateReviewsView.as_view(), name='candidate_reviews'),
-    path('accepted_candidates_by_manager/', AcceptedCandidatesbyManager.as_view(), name='accepted_candidates_by_manager'),
-    path('send_email/<int:pk>/', SendEmail.as_view(), name='send_email'),
+    path('sent-by-mainHr/', SentByMainHr.as_view(), name='sent_by_mainHr'),
 
-    path('logs/', HRLogsView.as_view(), name='logs'),
-    
-    
+
 
 ]

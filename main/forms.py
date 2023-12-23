@@ -62,7 +62,8 @@ class ScheduleMeetingForm(forms.ModelForm):
         if user:
             self.fields['job_application'].initial = f"{user.first_name} {user.last_name}"
             self.fields['job_application'].widget.attrs['readonly'] = True
-
+            
+            
 
 class RejectionDetailsForm(forms.ModelForm):
     class Meta:
@@ -72,7 +73,13 @@ class RejectionDetailsForm(forms.ModelForm):
             'reason': forms.Textarea(attrs={'rows': 4}),
         }
 
-
+class AcceptanceDetailsForm(forms.ModelForm):
+    class Meta:
+        model = AcceptanceDetails
+        fields = ['title_of_acceptance','reason']
+        widgets = {
+            'reason': forms.Textarea(attrs={'rows': 4}),
+        }
 
 class MeetingReviewForm(forms.ModelForm):
     class Meta:
@@ -83,23 +90,11 @@ class MeetingReviewForm(forms.ModelForm):
             'reason': forms.Textarea(attrs={'rows': 4}),
         }
 
-class TeamLeadDecisionForm(forms.ModelForm):
-    class Meta:
-        model = TeamLeadDecision
-        fields = ['decision', 'reason']
-        widgets = {
-            'decision': forms.RadioSelect(choices=TeamLeadDecision.DECISION_CHOICES),
-            'reason': forms.Textarea(attrs={'rows': 4}),
-        }
-
-from django import forms
-from .models import ManagerDecision
 
 class ManagerDecisionForm(forms.ModelForm):
     decision_choices = [
         ('accept_with_meeting', 'Accept with Meeting'),
-        ('accept_without_meeting', 'Accept without Meeting'),
-        ('reject', 'Reject'),
+
     ]
 
     decision = forms.ChoiceField(
@@ -109,27 +104,16 @@ class ManagerDecisionForm(forms.ModelForm):
     )
 
     class Meta:
-        model = ManagerDecision
-        fields = ['decision', 'reason', 'meeting_link', 'meeting_date', 'meeting_time']
+        model = ManagerMainHrDecision
+        fields = ['decision', 'meeting_link', 'meeting_date', 'meeting_time']
 
         widgets = {
-            'reason': forms.Textarea(attrs={'rows': 4}),
             'meeting_link': forms.URLInput(attrs={'placeholder': 'Enter the meeting link'}),
             'meeting_date': forms.DateInput(attrs={'type': 'date'}),
             'meeting_time': forms.TimeInput(attrs={'type': 'time'}),
         }
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Set the 'required' attribute dynamically based on the selected decision
-        if 'decision' in self.data:
-            decision = self.data['decision']
-            if decision == 'accept_with_meeting':
-                self.fields['meeting_link'].required = True
-                self.fields['meeting_time'].required = True
 
 class EmailForm(forms.Form):
     subject = forms.CharField(max_length=255)
     message = forms.CharField(widget=forms.Textarea)
-    applicant = forms.CharField(widget=forms.HiddenInput())  # Hidden input for the applicant name
-    to_email = forms.EmailField(widget=forms.HiddenInput()) 

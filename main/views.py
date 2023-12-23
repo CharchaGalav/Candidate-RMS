@@ -12,8 +12,8 @@ from django.utils import timezone
 from django.db.models import Count
 from .forms import *
 from .models import *
+import json
 
-from django.urls import reverse_lazy
 
 class home(View):
     template_name = 'home.html'
@@ -38,7 +38,6 @@ class JobDetail(generic.DetailView):
             user_has_applied = JobApplication.objects.filter(user=self.request.user, job=context['job']).exists()
         context['user_has_applied'] = user_has_applied
         return context
-
     
 class ApplyNowView(LoginRequiredMixin, View):
     login_url = '/accounts/login/'
@@ -54,14 +53,21 @@ class ApplyNowView(LoginRequiredMixin, View):
         
         job = Job.objects.get(pk=job_id)
         form = JobApplicationForm(request.POST, request.FILES)
+        
         if form.is_valid():
             user = request.user
             job_application = form.save(commit=False)
             job_application.user = request.user
             job_application.job = job
             job_application.logs = timezone.localtime(timezone.now())
+            existing_logsjson = job_application.logsjson
+            existing_logs_dict = json.loads(existing_logsjson) if existing_logsjson else {}
+            new_data ={
+                "student": ["applied", {"applied_on": str(timezone.localtime(timezone.now()))}], "open_count": 1, "base_hr":{"open1":["username","recent_date","viewed_on","status"] }
+            }
+            existing_logs_dict.update(new_data)
+            job_application.logsjson = json.dumps(existing_logs_dict)
             job_application.save()
-            # print(job_application)
             return redirect('all_jobs')
             
         return render(request, 'apply.html', {'form': form, 'job': job})
@@ -72,7 +78,22 @@ class AppliedJobs(LoginRequiredMixin, View):
     def get(self, request):
         user = request.user
         job_applications = JobApplication.objects.filter(user=user)
-        return render(request, self.template_name, {'job_applications': job_applications})
+        application_data = []
+        for application in job_applications:
+            try:
+                logs_data = json.loads(application.logsjson)
+                status = logs_data['student'][0]
+                applied_on = logs_data['student'][1]['applied_on']
+            except (json.JSONDecodeError, KeyError):
+                status = applied_on = "N/A"
+
+            application_data.append({
+                'job_name': application.job.job_name,
+                'slug': application.slug,
+                'status': status,
+                'applied_on': applied_on,
+            })
+        return render(request, self.template_name, {'job_applications': job_applications, 'application_data': application_data })
 
 class CustomLoginView(View):
     template_name = 'registration/login.html'
@@ -115,7 +136,6 @@ class RegisterView(View):
             return redirect('custom_login')  # Redirect to login page after registration
         return render(request, self.template_name, {'form': form})
 
-
 class ReleaseJobView(View):
     template_name = 'release_job.html'
 
@@ -141,7 +161,6 @@ class ReleaseJobView(View):
 
         return render(request, self.template_name, {'form': form})
 
-
 class ViewJobApplications(UserPassesTestMixin, View):
     template_name = 'view_job_applications.html'
 
@@ -157,150 +176,567 @@ class ViewJobApplications(UserPassesTestMixin, View):
         elif user.profile.is_teamlead or user.profile.is_teamMember or user.profile.is_manager or user.profile.is_mainHr or user.profile.is_onboardingHr:
             released_jobs = Job.objects.filter(released_by__profile__is_hr=True) 
 
-        for job in released_jobs:
+        def append_job_info(job, applicants):
             job_info = {
                 'job_name': job.job_name,
                 'job_location': job.job_location,
                 'job_type': job.get_job_type_display(),
-                'slug': job.slug,  
+                'slug': job.slug,
+                'num_applicants': applicants.count(),
+                'applicants': applicants,
             }
-            applicants = JobApplication.objects.filter(job=job)
-
-            job_info['applicants'] = applicants
             job_info_with_applicants.append(job_info)
 
-        return render(request, self.template_name, {'jobs_with_applicants': job_info_with_applicants})
+        for job in released_jobs:
+            applicants = JobApplication.objects.filter(job=job)
+            if applicants:
+                if user.profile.is_hr:
+                    append_job_info(job, applicants)
+                elif user.profile.is_teamlead or user.profile.is_teamMember:
+                    if applicants.filter(hr_is_accepted=True , meetscheduled_by_hr=True):
+                        append_job_info(job, applicants)
+                elif user.profile.is_manager:
+                    if applicants.filter(teamlead_is_accepted=True):
+                        append_job_info(job, applicants)
+                elif user.profile.is_mainHr:
+                    if applicants.filter(manager_is_accepted=True):
+                        append_job_info(job, applicants)
 
+        return render(request, self.template_name, {'jobs_with_applicants': job_info_with_applicants})
 
 class ViewApplicants(View):
     template_name = 'view_applicants.html'
 
     def get(self, request, job_slug):
+        user = request.user
         job = get_object_or_404(Job, slug=job_slug)
-        if self.request.user.profile.is_hr:
+        if user.profile.is_hr:
             applicants = JobApplication.objects.filter(job=job)
-        elif self.request.user.profile.is_teamlead or self.request.user.profile.is_teamMember:
-            applicants = JobApplication.objects.filter(job=job, hr_is_accepted = True)
-        elif self.request.user.profile.is_manager:
-            applicants = JobApplication.objects.filter(job=job, teamlead_is_accepted = True)
-        elif self.request.user.profile.is_mainHr:
-            applicants = JobApplication.objects.filter(job=job, manager_is_accepted = True)
+            accepted_applicants = applicants.filter(acceptancedetails__accepted_by=user)
+            rejection_details = RejectionDetails.objects.filter(job_application__job=job, rejected_by=user)
+            rejected_applicants = [rejection.job_application for rejection in rejection_details]
+            new_applicants = JobApplication.objects.filter(job=job, hr_is_accepted=False).exclude(id__in=[applicant.id for applicant in rejected_applicants])
+
+        elif user.profile.is_teamlead:
+            applicants = JobApplication.objects.filter(job=job, hr_is_accepted=True, meetscheduled_by_hr = True)
+            accepted_applicants = applicants.filter(acceptancedetails__accepted_by=user)
+            rejection_details = RejectionDetails.objects.filter(job_application__job=job, rejected_by=user)
+            rejected_applicants = [rejection.job_application for rejection in rejection_details]
+            new_applicants = applicants.filter(teamlead_is_accepted=False).exclude(id__in=[applicant.id for applicant in rejected_applicants] )
+            
+        elif user.profile.is_teamMember:
+            applicants = JobApplication.objects.filter(job=job, hr_is_accepted=True, meetscheduled_by_hr = True)
+            accepted_applicants = applicants.filter(Q(meetingschedule__meetingreview__reviewer=user) &  Q(meetingschedule__meetingreview__decision="accept"))
+            rejected_applicants = applicants.filter(Q(meetingschedule__meetingreview__reviewer=user) &  Q(meetingschedule__meetingreview__decision="reject"))
+            new_applicants = applicants.exclude(id__in=[applicant.id for applicant in accepted_applicants] + [applicant.id for applicant in rejected_applicants])
+
+        elif user.profile.is_manager:
+            applicants = JobApplication.objects.filter(job=job, hr_is_accepted=True, teamlead_is_accepted=True)
+            accepted_applicants = applicants.filter(acceptancedetails__accepted_by=user)
+            rejection_details = RejectionDetails.objects.filter(job_application__job=job, rejected_by=user)
+            rejected_applicants = [rejection.job_application for rejection in rejection_details]
+            new_applicants = applicants.filter(manager_is_accepted=False).exclude(id__in=[applicant.id for applicant in rejected_applicants])                       
+
+        elif user.profile.is_mainHr:
+            applicants = JobApplication.objects.filter(job=job, hr_is_accepted=True, teamlead_is_accepted=True, manager_is_accepted=True)
+            accepted_applicants = applicants.filter(acceptancedetails__accepted_by=user)
+            rejection_details = RejectionDetails.objects.filter(job_application__job=job, rejected_by=user)
+            rejected_applicants = [rejection.job_application for rejection in rejection_details]
+            new_applicants = applicants.filter(mainHr_is_accepted=False).exclude(id__in=[applicant.id for applicant in rejected_applicants])
+
+        for applicant in rejected_applicants:
+            applicant.meeting_schedule = applicant.meetingschedule_set.first() 
+            rejection_details = RejectionDetails.objects.filter(job_application=applicant).first()
+            applicant.rejection_details = rejection_details
+            try:
+                logs_dict = json.loads(applicant.logsjson)
+                applicant.student_logs= logs_dict.get("student")
+                applicant.base_hr_logs = logs_dict.get("base_hr")
+            except json.JSONDecodeError:
+                applicant.base_hr_logs = None
+
+        if accepted_applicants:
+            for applicant in accepted_applicants:
+                applicant.meeting_schedule = applicant.meetingschedule_set.first() 
+                acceptance_details = AcceptanceDetails.objects.filter(job_application=applicant, accepted_by=user).first()
+                applicant.acceptance_details = acceptance_details
+                try:
+                    logs_dict = json.loads(applicant.logsjson)
+                    applicant.base_hr_logs = logs_dict.get("base_hr")
+                    applicant.student_logs= logs_dict.get("student")
+                except json.JSONDecodeError:
+                    applicant.base_hr_logs = None
+        
+        pending_applicants = ManagerMainHrDecision.objects.filter(applicant__job=job, scheduled_by=user)
+        pending_applicants = pending_applicants.exclude(Q(applicant__in=accepted_applicants) | Q(applicant__in=rejected_applicants))
+        for applicant in pending_applicants:
+            pending_details = ManagerMainHrDecision.objects.filter(applicant=applicant.applicant).first()
+            applicant.pending_details = pending_details
+        
+        reviewed_applicants = JobApplication.objects.filter(
+            meetingschedule__scheduled_meet_attendees=request.user,
+            meetingschedule__meetingreview__isnull=False
+        ).distinct()
+
+        if reviewed_applicants:
+            for applicant in reviewed_applicants:
+                applicant.meeting_schedule = applicant.meetingschedule_set.first()
+           
+        reviewed_by_you = JobApplication.objects.filter(
+            meetingschedule__scheduled_meet_attendees=request.user,
+            meetingschedule__meetingreview__isnull=False,
+            meetingschedule__meetingreview__reviewer__profile__is_teamlead=True
+        ).distinct()
+
+        for applicant in reviewed_by_you:
+            applicant.meeting_schedule = applicant.meetingschedule_set.first()
+            applicant.has_review = applicant.meetingschedule_set.filter(meetingreview__reviewer=request.user).exists()
+            if applicant.has_review:
+                applicant.review = applicant.meetingschedule_set.filter(meetingreview__reviewer=request.user).first().meetingreview_set.filter(reviewer=request.user).first()        
+
+        reviewed_by_team_member = JobApplication.objects.filter(
+            meetingschedule__scheduled_meet_attendees=request.user,
+            meetingschedule__meetingreview__isnull=False,
+            meetingschedule__meetingreview__reviewer__profile__is_teamMember=True
+        ).distinct()
+
+        for applicant in reviewed_by_team_member:
+            applicant.meeting_schedule = applicant.meetingschedule_set.first()
+
+        final_review_list = []
+        for meeting_schedule_instance in MeetingSchedule.objects.all():
+            job_application = meeting_schedule_instance.job_application
+            if job_application not in accepted_applicants and job_application not in rejected_applicants:
+                meeting_attendees = meeting_schedule_instance.scheduled_meet_attendees.all()
+                has_review = all(
+                    MeetingReview.objects.filter(meeting_schedule=meeting_schedule_instance, reviewer=attendee).exists()
+                    for attendee in meeting_attendees
+                )
+
+                if has_review:
+                    final_review_list.append(job_application)
+
+        for applicant in final_review_list:
+            applicant.meeting_schedule = applicant.meetingschedule_set.first()
+
+        if new_applicants:
+            if user.profile.is_teamlead:
+                new_applicants = new_applicants.exclude(id__in = [applicant.id for applicant in reviewed_by_you])  
+            if user.profile.is_manager:
+                new_applicants = new_applicants.exclude(id__in = [applicant.applicant.id for applicant in pending_applicants])
+            if user.profile.is_mainHr:
+                new_applicants = new_applicants.exclude(id__in = [applicant.applicant.id for applicant in pending_applicants])
+            for applicant in new_applicants:
+                applicant.meeting_schedule = applicant.meetingschedule_set.first()
+                try:
+                    logs_dict = json.loads(applicant.logsjson)
+                    applicant.student_logs= logs_dict.get("student")
+                    applicant.base_hr_logs = logs_dict.get("base_hr")
+                except json.JSONDecodeError:
+                    applicant.base_hr_logs = None
+
         form = ScheduleMeetingForm()
-        return render(request, self.template_name, {'job': job, 'applicants': applicants , 'form': form})
+        
+        context = {
+            'job': job,
+            'accepted_applicants': accepted_applicants,
+            'rejected_applicants': rejected_applicants,
+            'new_applicants': new_applicants,
+            'form': form,
+            'user' : user,
+            'reviewed_applicants': reviewed_applicants,
+            'reviewed_by_you': reviewed_by_you,
+            'reviewed_by_team_member': reviewed_by_team_member,
+            'final_reviewed_applicants': final_review_list,
+            'pending_applicants': pending_applicants,
+        }
+        return render(request, self.template_name, context)
     
     def post(self, request, job_slug):
         job = get_object_or_404(Job, slug=job_slug)
         applicants = JobApplication.objects.filter(job=job)
         form = ScheduleMeetingForm(request.POST)
+        action = request.POST.get('action')
 
-        if form.is_valid():
-            meeting_schedule = form.save(commit=False)
-            
-            job_application_slug = form.cleaned_data['job_application']
-            job_application = get_object_or_404(JobApplication, slug=job_application_slug)
-            
-            meeting_schedule.job_application = job_application
-            meeting_schedule.scheduled_by = request.user
-            meeting_schedule.save()
-            meeting_schedule.scheduled_meet_attendees.set(form.cleaned_data['scheduled_meet_attendees'])
-            
-            meeting_schedule.logs = timezone.now()
-
-            meeting_schedule.save()
-            
-            send_mail(
-                f"Meeting scheduled for {meeting_schedule.job_application.f_name} {meeting_schedule.job_application.l_name}",
-                f"A meeting has been scheduled for {meeting_schedule.job_application.f_name} "
-                f"{meeting_schedule.job_application.l_name} on {meeting_schedule.scheduled_meet_date}. "
-                f"Please join using this link: {meeting_schedule.scheduled_meet_link}",
-                'EMAIL_HOST_USER',
-                [meeting_schedule.job_application.email],
-                fail_silently=False,
-            )
-            print(meeting_schedule.job_application.f_name)
-            self.send_email_to_attendees(meeting_schedule.scheduled_meet_attendees.all(), meeting_schedule)
-            return render(request, self.template_name, {'job': job, 'applicants': applicants, 'form': form})
-    
-            applicants = JobApplication.objects.filter(job=job)
-        return render(request, self.template_name, {'job': job, 'applicants': applicants, 'form': form})
-      
-
-    def send_email_to_attendees(self, attendees, meeting_schedule):
-        from_email = 'EMAIL_HOST_USER'
-        for attendee in attendees:
-            to_email = attendee.email
-            print(to_email)
-            subject = f"Meeting scheduled for {meeting_schedule.job_application.f_name} {meeting_schedule.job_application.l_name}"
-            message = f"Hi {attendee.first_name},\n\n" \
-                      f"A meeting has been scheduled for {meeting_schedule.job_application.f_name} " \
-                      f"{meeting_schedule.job_application.l_name} on {meeting_schedule.scheduled_meet_date}. " \
-                      f"Please join using this link: {meeting_schedule.scheduled_meet_link}"
-            count = send_mail(subject, message, from_email, [to_email])
-            if count > 0:
-                print("Email sent successfully!")
-            else:       
-                print("Email not sent.")
-
-
-class ViewProfile(LoginRequiredMixin, View):
-    template_name = 'view_profile.html'
-
-    def get(self, request, applicant_slug):
-        form = ManagerDecisionForm()
-        job_application = get_object_or_404(JobApplication, slug=applicant_slug)
-        
-        return render(request, self.template_name, {'application': job_application})
-
-    def post(self, request, applicant_slug):
-        job_application = get_object_or_404(JobApplication, slug=applicant_slug)
-        form = ManagerDecisionForm(request.POST)
-
-        # Accept action
         if 'accept' in request.POST:
-            if not job_application.hr_is_accepted:
-                job_application.hr_is_accepted = True
-                job_application.save()  
-
-        # Reject action
+            job_application_slug = request.POST.get('job_application_slug')
+            job_application = get_object_or_404(JobApplication, slug=job_application_slug)
+            form = AcceptanceDetailsForm(request.POST)
+            if form.is_valid():
+                acceptance_details = form.save(commit=False)
+                acceptance_details.job_application = job_application
+                acceptance_details.accepted_by = request.user
+                job_application.teamlead_is_accepted = True
+                acceptance_details.save()
+                job_application.save()
+                return redirect('view_applicants', job_slug=job_slug)
+        
         elif 'reject' in request.POST:
+            job_application_slug = request.POST.get('job_application_slug')
+            job_application = get_object_or_404(JobApplication, slug=job_application_slug)
             form = RejectionDetailsForm(request.POST)
             if form.is_valid():
-                # print("Form is valid")
                 rejection_details = form.save(commit=False)
                 rejection_details.job_application = job_application
                 rejection_details.rejected_by = request.user
                 rejection_details.logs = timezone.localtime(timezone.now())
                 rejection_details.save()
-                if job_application.hr_is_accepted == True:
-                    job_application.hr_is_accepted = False
-                    job_application.save()
+                return redirect('view_applicants', job_slug=job_slug)
+        
+        elif 'reset' in request.POST:
+            job_application_slug = request.POST.get('job_application_slug')
+            job_application = get_object_or_404(JobApplication, slug=job_application_slug)
+            if job_application.rejectiondetails_set.exists():
+                job_application.rejectiondetails_set.all().delete()
+                return redirect('view_applicants', job_slug=job_slug)
+        
+        elif 'mail' in request.POST:
+            job_application_slug = request.POST.get('job_application_slug')
+            job_application = get_object_or_404(JobApplication, slug=job_application_slug)
+            form = EmailForm(request.POST)
+
+            if form.is_valid():
+                subject = form.cleaned_data['subject']
+                message = form.cleaned_data['message']
+                sender_name = request.user.username
+                EmailLog.objects.create(
+                    applicant=job_application,
+                    sender_name=sender_name,
+                    to_email=job_application.email,
+                    subject=subject,
+                    message=message
+                )
+                send_mail(
+                    subject,
+                    message,
+                    'EMAIL_HOST_USER',
+                    [job_application.email],
+                    fail_silently=True,
+                )
+                return redirect('view_applicants', job_slug=job_slug)
+
+        elif 'sendtobasehr' in request.POST:
+            job_application_slug = request.POST.get('job_application_slug')
+            job_application = get_object_or_404(JobApplication, slug=job_application_slug)
+            job_application.mainHr_to_hr = True
+            job_application.save()
+            return redirect('view_applicants', job_slug=job_slug)
+            
+        elif 'review' in request.POST:
+            job_application_slug = request.POST.get('job_application_slug')
+            job_application = get_object_or_404(JobApplication, slug=job_application_slug)
+            meeting_schedule = job_application.meetingschedule_set.first()
+            form = MeetingReviewForm(request.POST)
+            if form.is_valid():
+                decision = form.cleaned_data['decision']
+                reason = form.cleaned_data['reason']
+
+                existing_review = meeting_schedule.meetingreview_set.filter(reviewer=request.user).first()
+
+                if existing_review:
+                    existing_review.decision = decision
+                    existing_review.reason = reason
+                    existing_review.save()
+                else:
+                    meeting_review = form.save(commit=False)
+                    meeting_review.meeting_schedule = meeting_schedule
+                    meeting_review.reviewer = request.user
+                    meeting_review.save()
+
+                return redirect('view_applicants', job_slug=job_slug)
+
+        elif 'manageraccept' in request.POST:
+            job_application_slug = request.POST.get('job_application_slug')
+            job_application = get_object_or_404(JobApplication, slug=job_application_slug)
+            form = AcceptanceDetailsForm(request.POST)
+            if form.is_valid():
+                acceptance_details = form.save(commit=False)
+                acceptance_details.job_application = job_application
+                acceptance_details.accepted_by = request.user
+                acceptance_details.save()
+                if self.request.user.profile.is_manager:
+                    job_application.manager_is_accepted = True
+                elif self.request.user.profile.is_mainHr:
+                    job_application.mainHr_is_accepted = True
+                job_application.save()
+                return redirect('view_applicants', job_slug=job_slug)
+
+        elif 'managerreject' in request.POST:
+            job_application_slug = request.POST.get('job_application_slug')
+            job_application = get_object_or_404(JobApplication, slug=job_application_slug)
+            form = RejectionDetailsForm(request.POST)
+            if form.is_valid():
+                rejection_details = form.save(commit=False)
+                rejection_details.job_application = job_application
+                rejection_details.rejected_by = request.user
+                rejection_details.logs = timezone.localtime(timezone.now())
+                rejection_details.save()
+                return redirect('view_applicants', job_slug=job_slug)
+
+        if action == 'cancel_meeting':
+            job_application_slug = request.POST.get('job_application')
+            job_application = get_object_or_404(JobApplication, slug=job_application_slug)
+            meeting_schedule = MeetingSchedule.objects.filter(job_application=job_application).first()
+            
+            if meeting_schedule:
+                meeting_schedule.delete()
+                job_application.meetscheduled_by_hr = False
+                send_mail(
+                    f"Meeting canceled for {job_application.f_name} {job_application.l_name}",
+                    f"The meeting scheduled for {job_application.f_name} {job_application.l_name} has been canceled.",
+                    'EMAIL_HOST_USER',
+                    [job_application.email],
+                    fail_silently=True,
+                )
+                messages.success(request, 'Meeting canceled successfully.')
+            else:
+                messages.error(request, 'Meeting not found.')
+            
+            return redirect('view_applicants', job_slug=job_slug)
+               
+        elif form.is_valid():
+            meeting_schedule = form.save(commit=False)
+            job_application_slug = form.cleaned_data['job_application']
+            job_application = get_object_or_404(JobApplication, slug=job_application_slug)
+            existing_meeting = MeetingSchedule.objects.filter(job_application=job_application).first()
+            if existing_meeting:
+                existing_meeting.scheduled_meet_date = form.cleaned_data['scheduled_meet_date']
+                existing_meeting.scheduled_meet_time = form.cleaned_data['scheduled_meet_time']
+                existing_meeting.scheduled_meet_link = form.cleaned_data['scheduled_meet_link']
+                existing_meeting.scheduled_meet_attendees.set(form.cleaned_data['scheduled_meet_attendees'])
+                existing_meeting.save()
+
+                send_mail(
+                    f"Meeting Rescheduled for {job_application.f_name} {job_application.l_name}",
+                    f"A meeting has been rescheduled for {job_application.f_name} {job_application.l_name} on {existing_meeting.scheduled_meet_date}. Please join using this link: {existing_meeting.scheduled_meet_link}",
+                    'EMAIL_HOST_USER',
+                    [job_application.email],
+                    fail_silently=True,
+                )
+                attendees = existing_meeting.scheduled_meet_attendees.all()
+                self.send_email_to_attendees(attendees, existing_meeting, 0)
+                existing_logs_dict = json.loads(job_application.logsjson)
+                existing_logs_dict["base_hr"]["open_count"] += 1
+                teamleadname = ""
+                list = []
+                for attendee in attendees:
+                    open_count = existing_logs_dict["base_hr"]["open_count"]
+                    date = str(timezone.localtime(timezone.now()))
+                    if attendee.profile.is_teamlead:
+                        teamleadname = attendee.username
+                    
+                    if attendee.profile.is_teamMember:
+                        teammembername = attendee.username
+                        list.append(teammembername)
+                recent_date = str(timezone.localtime(timezone.now())) if open_count == 1 else existing_logs_dict["base_hr"]["open"+str(open_count - 1)][1]
+                viewed_on = str(timezone.localtime(timezone.now())) if open_count == 1 else existing_logs_dict["base_hr"]["open"+str(1)][2]
+                status = "Viewed" if open_count == 1 else existing_logs_dict["base_hr"]["open"+str(open_count - 1)][3]
+                new_data = {"open"+ str(open_count): [ self.request.user.username , recent_date, viewed_on, status ,{"meeting_on": str(timezone.localtime(timezone.now())),"meeting_mail":["Reschedule Mail Sent",date ],"forward_status":[teamleadname,date],"forward_members": list}]}
+                existing_logs_dict["base_hr"].update(new_data)
+                job_application.logsjson = json.dumps(existing_logs_dict)
+                job_application.save()
+                return redirect('view_applicants', job_slug=job.slug)
+            
+            else:
+                # Continue with scheduling a new meeting
+                meeting_schedule.job_application = job_application
+                meeting_schedule.scheduled_by = request.user
+                meeting_schedule.save()
+                meeting_schedule.scheduled_meet_attendees.set(form.cleaned_data['scheduled_meet_attendees'])
+                meeting_schedule.logs = timezone.now()
+                meeting_schedule.save()
+                job_application.meetscheduled_by_hr = True
+                send_mail(
+                    f"Meeting scheduled for {meeting_schedule.job_application.f_name} {meeting_schedule.job_application.l_name}",
+                    f"A meeting has been scheduled for {meeting_schedule.job_application.f_name} "
+                    f"{meeting_schedule.job_application.l_name} on {meeting_schedule.scheduled_meet_date}. "
+                    f"Please join using this link: {meeting_schedule.scheduled_meet_link}",
+                    'EMAIL_HOST_USER',
+                    [meeting_schedule.job_application.email],
+                    fail_silently=True,
+                )
+                attendees = meeting_schedule.scheduled_meet_attendees.all()
+                self.send_email_to_attendees(attendees, meeting_schedule, 1)
+                existing_logs_dict = json.loads(job_application.logsjson)
+                for attendee in attendees:
+                    open_count = existing_logs_dict["open_count"]
+                    date = str(timezone.localtime(timezone.now()))
+                    if attendee.profile.is_teamlead:
+                        teamleadname = attendee.username
+                    list = []
+                    if attendee.profile.is_teamMember:
+                        teammembername = attendee.username
+                        list.append(teammembername)
+                new_data = {"meeting_on": str(timezone.localtime(timezone.now())),"meeting_mail":["Schedule Mail Sent",date ],"forward_status":[teamleadname,date],"forward_members": list}
+                existing_logs_dict["base_hr"]["open"+str(open_count)].append(new_data)
+                job_application.logsjson = json.dumps(existing_logs_dict)
+                job_application.save()
+            return redirect('view_applicants', job_slug=job_slug)
+        
+            applicants = JobApplication.objects.filter(job=job)
+        return render(request, self.template_name, {'job': job, 'applicants': applicants, 'form': form})
+      
+    def send_email_to_attendees(self, attendees, meeting_schedule, i ):
+        from_email = 'EMAIL_HOST_USER'
+        for attendee in attendees:
+            to_email = attendee.email
+            subject = f"Meeting scheduled for {meeting_schedule.job_application.f_name} {meeting_schedule.job_application.l_name}"
+            if i == 0:
+                message = f"Hi {attendee.username},\n\n" \
+                      f"A meeting has been rescheduled for {meeting_schedule.job_application.f_name} " \
+                      f"{meeting_schedule.job_application.l_name} on {meeting_schedule.scheduled_meet_date}. " \
+                      f"Please join using this link: {meeting_schedule.scheduled_meet_link}"
+            if i == 1:
+                message = f"Hi {attendee.username},\n\n" \
+                        f"A meeting has been scheduled for {meeting_schedule.job_application.f_name} " \
+                        f"{meeting_schedule.job_application.l_name} on {meeting_schedule.scheduled_meet_date}. " \
+                        f"Please join using this link: {meeting_schedule.scheduled_meet_link}"
+            
+            send_mail(subject, message, from_email, [to_email], fail_silently=True)
+        
+            
+class ViewProfile(LoginRequiredMixin, View):
+    template_name = 'view_profile.html'
+    
+    def get(self, request, applicant_slug):
+        form = ManagerDecisionForm()
+        job_application = get_object_or_404(JobApplication, slug=applicant_slug)
+        has_decision = ManagerMainHrDecision.objects.filter(applicant=job_application, scheduled_by=request.user).exists()
+        if self.request.user.profile.is_hr:
+            existing_logs_dict = json.loads(job_application.logsjson)
+            open_count = existing_logs_dict["open_count"]
+            recent_date = str(timezone.localtime(timezone.now())) 
+            
+            status = "Viewed" if job_application.first_view == False  else existing_logs_dict["base_hr"]["open"+str(open_count)][3]
+            
+            if job_application.first_view == False:
+                viewed_on = str(timezone.localtime(timezone.now()))
+                job_application.first_view = True
+            else:
+                viewed_on = existing_logs_dict["base_hr"]["open"+str(open_count)][2]
+            existing_logs_dict["base_hr"]["open"+str(open_count)][0] = self.request.user.username
+            existing_logs_dict["base_hr"]["open"+str(open_count)][1] = recent_date
+            existing_logs_dict["base_hr"]["open"+str(open_count)][2] = viewed_on
+            existing_logs_dict["base_hr"]["open"+str(open_count)][3] = status
+            
+            job_application.logsjson = json.dumps(existing_logs_dict)
+            job_application.save()
+        return render(request, self.template_name, {'application': job_application, 'form': form, 'has_decision': has_decision})
+
+    def post(self, request, applicant_slug):
+        job_application = get_object_or_404(JobApplication, slug=applicant_slug)
+        form = ManagerDecisionForm(request.POST)
+        existing_logs_dict = json.loads(job_application.logsjson)
+        action = request.POST.get('action')
+
+        if action=="cancel_meeting":
+            existing_detail = ManagerMainHrDecision.objects.filter(applicant=job_application, scheduled_by=request.user).first()
+            if existing_detail:
+                existing_detail.delete()
                 return redirect('view_applicants' , job_slug=job_application.job.slug)
             
+            send_mail(
+                f"Meeting canceled for {job_application.user}",
+                f"The meeting scheduled for {job_application.user} has been canceled.",
+                'EMAIL_HOST_USER',
+                [job_application.email],
+                fail_silently=True,
+            )
+
+        if 'accept' in request.POST:
+            form = AcceptanceDetailsForm(request.POST)
+            if form.is_valid():
+                if request.user.profile.is_hr:
+                    if not job_application.hr_is_accepted:
+                        acceptance_details = form.save(commit=False)
+                        acceptance_details.job_application = job_application
+                        acceptance_details.accepted_by = request.user
+                        acceptance_details.save()
+                        job_application.hr_is_accepted = True
+                        open_count = existing_logs_dict["open_count"]
+                        existing_logs_dict["base_hr"]["open"+str(open_count)][3] = "Accepted"
+                        job_application.logsjson = json.dumps(existing_logs_dict)
+                        job_application.save()
+                        review_heading = form.cleaned_data['title_of_acceptance']
+                        review_reason = form.cleaned_data['reason']
+                        new_data = {"review_heading": review_heading, "review_reason": review_reason}
+                        existing_logs_dict["base_hr"]["open" + str(open_count)].extend([
+                            new_data["review_heading"],
+                            new_data["review_reason"]
+                        ])
+                        job_application.logsjson = json.dumps(existing_logs_dict)
+                        job_application.save()
+                elif request.user.profile.is_manager:
+                    if not job_application.manager_is_accepted:
+                        acceptance_details = form.save(commit=False)    
+                        acceptance_details.job_application = job_application
+                        acceptance_details.accepted_by = request.user
+                        acceptance_details.save()
+                        job_application.manager_is_accepted = True
+                        job_application.save() 
+                elif request.user.profile.is_mainHr:
+                    if not job_application.mainHr_is_accepted:
+                        acceptance_details = form.save(commit=False)    
+                        acceptance_details.job_application = job_application
+                        acceptance_details.accepted_by = request.user
+                        acceptance_details.save()
+                        job_application.mainHr_is_accepted = True
+                        job_application.save()
+            return redirect('view_applicants' , job_slug=job_application.job.slug)
+
+        elif 'reject' in request.POST:
+            form = RejectionDetailsForm(request.POST)
+            if form.is_valid():
+                rejection_details = form.save(commit=False)
+                rejection_details.job_application = job_application
+                rejection_details.rejected_by = request.user
+                rejection_details.save()
+                review_heading = form.cleaned_data['title_of_rejection']
+                
+                review_reason = form.cleaned_data['reason']
+                
+                open_count = existing_logs_dict["open_count"]
+                existing_logs_dict["base_hr"]["open"+str(open_count)][3] = "Rejected"
+                new_data = {"review_heading": review_heading, "review_reason": review_reason}
+                existing_logs_dict["base_hr"]["open" + str(open_count)].extend([
+                    new_data["review_heading"],
+                    new_data["review_reason"]
+                ])
+                job_application.logsjson = json.dumps(existing_logs_dict)
+                if job_application.hr_is_accepted == True:
+                    job_application.hr_is_accepted = False
+                job_application.save()
+                return redirect('view_applicants' , job_slug=job_application.job.slug)
+        
+        elif 'reset' in request.POST:
+            if job_application.rejectiondetails_set.exists():
+                existing_logs_dict["open_count"] += 1
+                open_count = existing_logs_dict["open_count"]
+                existing_logs_dict["base_hr"]["open" + str(open_count)] = ["username","recent_date","viewed_on","status"]
+                job_application.first_view = False
+                job_application.logsjson = json.dumps(existing_logs_dict)
+                job_application.rejectiondetails_set.all().delete()
+                job_application.save()
+                return redirect('view_applicants' , job_slug=job_application.job.slug)
         
         elif 'givedecision' in request.POST:
             form = ManagerDecisionForm(request.POST)
             if form.is_valid():
-                    print("Form is valid")
                     decision = form.cleaned_data['decision']
-                    print("DEcsion")
                     meeting_link = form.cleaned_data.get('meeting_link', '')
                     meeting_date = form.cleaned_data.get('meeting_date', '')
                     meeting_time = form.cleaned_data.get('meeting_time', '')
-
                     applicant_user = User.objects.get(username=job_application.user)
-                    
-                    decision_instance = ManagerDecision(
-                        applicant=job_application.user,
+                    decision_instance = ManagerMainHrDecision(
+                        applicant=job_application,
                         decision=form.cleaned_data['decision'],
-                        reason=form.cleaned_data.get('reason', ''),
                         meeting_link=meeting_link,
                         meeting_date=meeting_date,
                         meeting_time=meeting_time,
+                        scheduled_by=request.user,
                         email=applicant_user.email,
                     )
                     decision_instance.save()
-                    job_application.manager_is_accepted = True
-                    job_application.save()
                     if decision == 'accept_with_meeting':
                         # Send email to applicant
                         send_mail(
@@ -309,59 +745,30 @@ class ViewProfile(LoginRequiredMixin, View):
                             f"Please join using this link: {meeting_link}",
                             'EMAIL_HOST_USER',
                             [applicant_user.email],
-                            fail_silently=False,
+                            fail_silently=True,
                         )
-                    return redirect('home')
-         
+                    return redirect('view_applicants' , job_slug=job_application.job.slug)  
+
+        elif 'reschedule_meeting' in request.POST:
+            new_meeting_date = request.POST.get('new_meeting_date')
+            new_meeting_time = request.POST.get('new_meeting_time')
+            existing_detail = ManagerMainHrDecision.objects.filter(applicant=job_application, scheduled_by = request.user).first()
+            if existing_detail:
+                existing_detail.meeting_date = new_meeting_date
+                existing_detail.meeting_time = new_meeting_time
+                print(existing_detail.meeting_date)  
+                existing_detail.save()
+                send_mail(
+                    f"Meeting Rescheduled for {job_application.user}",
+                    f"A meeting has been rescheduled for {job_application.user} on {new_meeting_date} at {new_meeting_time}. ",
+                    'EMAIL_HOST_USER',
+                    [job_application.email],
+                    fail_silently=True,
+                )
+                return redirect('view_applicants' , job_slug=job_application.job.slug)
+       
 
         return render(request, self.template_name, {'application': job_application, 'form': form})
-
-
-class AllAcceptedCandidates(UserPassesTestMixin, View):
-    template_name = 'all_accepted_candidates.html'
-
-    def test_func(self):
-        return self.request.user.is_authenticated and (self.request.user.profile.is_hr or self.request.user.profile.is_teamlead or self.request.user.profile.is_manager)
-
-    def get(self, request):
-        user = self.request.user
-        if user.profile.is_hr:
-            accepted_candidates = JobApplication.objects.filter(hr_is_accepted=True)
-            print(accepted_candidates)
-        elif user.profile.is_teamlead:
-            accepted_candidates = JobApplication.objects.filter(teamlead_is_accepted=True)
-        elif user.profile.is_manager:
-            accepted_candidates = JobApplication.objects.filter(manager_is_accepted=True)
-        else:
-            accepted_candidates = JobApplication.objects.none()
-
-        return render(request, self.template_name, {'candidates': accepted_candidates})
-
-
-class AllRejectedCandidates(UserPassesTestMixin, View):
-    template_name = 'all_rejected_candidates.html'
-
-    def test_func(self):
-        return self.request.user.is_authenticated and (
-            self.request.user.profile.is_hr or
-            self.request.user.profile.is_teamlead or
-            self.request.user.profile.is_manager
-        )
-
-    def get(self, request):
-        user = self.request.user
-        if user.profile.is_hr:
-            rejected_candidates = RejectionDetails.objects.filter(rejected_by=user)
-            print(rejected_candidates)
-        elif user.profile.is_teamlead:
-            rejected_candidates = RejectionDetails.objects.filter(rejected_by=user)
-        elif user.profile.is_manager:
-            rejected_candidates = RejectionDetails.objects.filter(rejected_by=user)
-        else:
-            rejected_candidates = RejectionDetails.objects.none()
-
-        return render(request, self.template_name, {'candidates': rejected_candidates, 'status': 'Rejected'})
-
 
 class ViewScheduledMeetings(UserPassesTestMixin, View):
     template_name = 'view_scheduled_meetings.html'
@@ -384,12 +791,13 @@ class ViewScheduledMeetings(UserPassesTestMixin, View):
         return render(request, self.template_name, {'meetings': meetings})
     
 class ReviewMeetingView(LoginRequiredMixin, View):
-    template_name = 'review_meeting.html'
+    template_name = 'view_applicants.html'
 
     def get(self, request, applicant_slug):
         meeting = MeetingSchedule.objects.get(job_application__slug=applicant_slug)
-        form = MeetingReviewForm(initial={'reviewer': request.user})  # Set the initial value for reviewer
-        return render(request, self.template_name, {'form': form, 'meeting': meeting})
+        form = MeetingReviewForm(initial={'reviewer': request.user}) 
+        has_review = meeting.meetingreview_set.filter(reviewer=request.user).exists()
+        return render(request, self.template_name, {'form': form, 'meeting': meeting, 'has_review': has_review})
 
     def post(self, request, applicant_slug):
         meeting = MeetingSchedule.objects.get(job_application__slug=applicant_slug)
@@ -399,175 +807,33 @@ class ReviewMeetingView(LoginRequiredMixin, View):
             decision = form.cleaned_data['decision']
             reason = form.cleaned_data['reason']
 
-            meeting_review = form.save(commit=False)
-            meeting_review.meeting_schedule = meeting
-            meeting_review.reviewer = request.user  # Set the reviewer to the logged-in user
-            meeting_review.save()
+            existing_review = meeting.meetingreview_set.filter(reviewer=request.user).first()
 
-            return redirect('view_scheduled_meetings')
+            if existing_review:
+                existing_review.decision = decision
+                existing_review.reason = reason
+                existing_review.save()
+            else:
+                meeting_review = form.save(commit=False)
+                meeting_review.meeting_schedule = meeting
+                meeting_review.reviewer = request.user
+                meeting_review.save()
+
+            return redirect('view_applicants', job_slug=meeting.job_application.job.slug)   
 
         return render(request, self.template_name, {'form': form, 'meeting': meeting})
-    
-class AllCandidateReviewsView(View):
-    template_name = 'all_candidate_reviews.html'
 
-    def get(self, request):
-        user = self.request.user
-
-        if user.profile.is_teamlead:
-            # Assuming the team lead is scheduled as an attendee
-            meetings = MeetingSchedule.objects.filter(scheduled_meet_attendees=user)
-            reviews = MeetingReview.objects.all()
-
-            # Get distinct list of applicants
-            distinct_applicants = MeetingReview.objects.all().values(
-                'meeting_schedule__job_application__id',
-                'meeting_schedule__job_application__f_name',
-                'meeting_schedule__job_application__l_name',
-                'meeting_schedule__job_application__job__job_name'
-                
-            ).annotate(num_reviews=Count('id'))
-
-            return render(request, self.template_name, {'distinct_applicants': distinct_applicants})
-
-        return render(request, self.template_name, {'distinct_applicants': []})
-
-class CandidateReviewsView(View):
-    template_name = 'candidate_reviews.html'
-
-    def get(self, request, applicant_id):
-        user = self.request.user
-        applicant_reviews = MeetingReview.objects.filter(meeting_schedule__job_application=applicant_id)
-        applicant = JobApplication.objects.get(id=applicant_id)
-        return render(request, self.template_name, {'reviews': applicant_reviews, 'applicant_id': applicant_id, 'applicant': applicant})
-    
-    def post(self, request, applicant_id):
-        job_application = get_object_or_404(JobApplication, id=applicant_id)
-
-        # Accept action
-        if 'accept' in request.POST:
-            if not job_application.teamlead_is_accepted:
-                job_application.teamlead_is_accepted = True
-                job_application.save()  
-
-        # Reject action
-        elif 'reject' in request.POST:
-            form = RejectionDetailsForm(request.POST)
-            if form.is_valid():
-                print("Form is valid")
-                rejection_details = form.save(commit=False)
-                rejection_details.job_application = job_application
-                rejection_details.rejected_by = request.user
-                rejection_details.logs = timezone.localtime(timezone.now())
-                rejection_details.save()
-                if job_application.teamlead_is_accepted == True:
-                    job_application.teamlead_is_accepted = False
-                    job_application.save()
-                return redirect('all_candidate_reviews')
-        
-        return render(request, self.template_name, { 'applicant_id': applicant_id})  
-
-
-class AcceptedCandidatesbyManager(View):
-    template_name = 'accepted_candidate_by_manager.html'
-
-    def get(self, request):
-        user = self.request.user
-        if user.profile.is_mainHr or user.profile.is_manager  or user.profile.is_onboardingHr:
-            accepted_candidates = ManagerDecision.objects.filter(decision='accept_with_meeting' or 'accept_without_meeting')
-            # Retrieve relevant information for each candidate
-            candidate_data = []
-            for decision in accepted_candidates:
-                candidate_data.append({
-                    'applicant_id': decision.id,
-                    'applicant': decision.applicant,
-                    'decision': decision.decision,
-                    'reason': decision.reason,
-                    'meeting_link': decision.meeting_link,
-                    'meeting_date': decision.meeting_date,
-                    'meeting_time': decision.meeting_time,
-                })
-
-            return render(request, self.template_name, {'candidates_data': candidate_data})
-        else:
-            return redirect('home')
-        
-# class SendEmail(generic.FormView):
-#     template_name = 'send_email.html'
-
-#     form_class = EmailForm
-#     success_url = reverse_lazy('home')  # Redirect to home after sending email
-    
-#     def get(self, request, pk):
-#         applicant = get_object_or_404(ManagerDecision, pk=pk)
-#         form = EmailForm(initial={'applicant': applicant, pk: pk})
-#         return render(request, self.template_name, {'form': form, 'applicant': applicant})
-    
-#     def form_valid(self, form, pk):
-#         subject = form.cleaned_data['subject']
-#         message = form.cleaned_data['message']
-#         sender_name = self.request.user.username
-
-
-#         # Save the data to the EmailLog model
-#         EmailLog.objects.create(
-#             applicant=,
-#             sender_name=sender_name,
-#             to_email=,
-#             subject=subject,
-#             message=message
-#         )
-#         return super().form_valid(form)
-    
-
-class SendEmail(generic.FormView):
-    template_name = 'send_email.html'
-    form_class = EmailForm
-    success_url = reverse_lazy('home')  # Redirect to home after sending email
-    
-    def get(self, request, pk):
-        # Retrieve the ManagerDecision object
-        applicant = get_object_or_404(ManagerDecision, pk=pk)
-        # Initialize the form with the applicant information
-        form = EmailForm(initial={'applicant': applicant.applicant, 'to_email': applicant.email})
-        return render(request, self.template_name, {'form': form, 'applicant': applicant})
-    
-    def form_valid(self, form):
-        # Extract data from the form
-        subject = form.cleaned_data['subject']
-        message = form.cleaned_data['message']
-        sender_name = self.request.user.username
-
-        # Retrieve the ManagerDecision object
-        applicant = get_object_or_404(ManagerDecision, pk=self.kwargs['pk'])
-
-        # Save the data to the EmailLog model
-        EmailLog.objects.create(
-            applicant=applicant.applicant,
-            sender_name=sender_name,
-            to_email=applicant.email,
-            subject=subject,
-            message=message
-        )
-        send_mail(
-            subject,
-            message,
-            'EMAIL_HOST_USER',
-            [applicant.email],
-            fail_silently=False,
-        )
-        return super().form_valid(form)
-
-class HRLogsView(UserPassesTestMixin, View):
-    template_name = 'logs.html'
+class SentByMainHr(UserPassesTestMixin, View):
+    template_name = 'sent_by_mainHr.html'
 
     def test_func(self):
-        return self.request.user.is_authenticated 
+        return self.request.user.is_authenticated and self.request.user.profile.is_hr
 
     def get(self, request):
-        job_applications = JobApplication.objects.all()
-        meeting_schedules = MeetingSchedule.objects.all()
-        teamLead_decisions = TeamLeadDecision.objects.all()
-        manager_decisions = ManagerDecision.objects.all()
-        send_mail = EmailLog.objects.all()
-        return render(request, self.template_name, {'job_applications': job_applications, 'meeting_schedules': meeting_schedules, 'teamLead_decisions': teamLead_decisions, 'manager_decisions': manager_decisions, 'send_mail': send_mail})
+        user = request.user
+        job_applications = JobApplication.objects.filter(mainHr_to_hr=True)
+        return render(request, self.template_name, {'job_applications': job_applications})
+
+
+
+ 

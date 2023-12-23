@@ -15,7 +15,6 @@
             <th scope="col">Scheduled Time</th>
             {% if user.profile.is_teamlead or user.profile.is_teamMember %}
             <th scope="col">Meeting Link</th>
-            <th scope="col">Action</th>
             {% endif %}
           </tr>
         </thead>
@@ -28,43 +27,6 @@
               <td>{{ meeting.scheduled_meet_time }}</td>
               {% if user.profile.is_teamlead or user.profile.is_teamMember %}
               <td><a href="{{ meeting.scheduled_meet_link }}" target="_blank">Join Meeting</a></td>
-              {% comment %} <td> <a class="btn btn-primary" href="{% url 'review_meeting' meeting.id %}">Give Review</a> </td>   {% endcomment %}
-
-
-              <td><button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#giveReview{{ meeting.job_application.slug }}">Give Review</button></td>
-              <div class="modal fade" id="giveReview{{ meeting.job_application.slug }}" tabindex="-1" aria-labelledby="giveReviewLabel{{ meeting.job_application.slug }}" aria-hidden="true" data-bs-backdrop="false">
-                <div class="modal-dialog modal-dialog-centered modal-md">
-                    <div class="modal-content">
-                        <form method="post" action="{% url 'review_meeting' applicant_slug=meeting.job_application.slug %}">
-                            <div class="modal-header">
-                                <h5 class="modal-title" id="giveReviewLabel{{ meeting.job_application.slug }}">Give Review</h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                            </div>
-                            <div class="modal-body">
-                                {% csrf_token %}
-                                <div class="form-check">
-                                  <input class="form-check-input" type="radio" name="decision" id="accept" value="accept" required>
-                                  <label class="form-check-label" for="accept">Accept</label>
-                              </div>
-                              <div class="form-check">
-                                  <input class="form-check-input" type="radio" name="decision" id="reject" value="reject" required>
-                                  <label class="form-check-label" for="reject">Reject</label>
-                              </div>
-                                <label for="reason">Reason</label>
-                                <textarea class="form-control" name="reason" placeholder="Specify Reason here...." required></textarea>
-
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                                <button type="submit" class="btn btn-primary">Give Review</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-              </div>               
-                                
-
-
               {% endif %}
              </tr>
           {% endfor %}
