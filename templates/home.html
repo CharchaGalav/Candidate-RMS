@@ -13,7 +13,7 @@
             </div>
 
 
-            {% if not user.profile.is_hr and not user.profile.is_teamlead and not user.profile.is_teamMember and not user.profile.is_manager and not user.profile.is_mainHr and not user.profile.is_onboardingHr  %}
+            {% if not user.profile.is_hr and not user.profile.is_teamlead and not user.profile.is_teamMember and not user.profile.is_manager and not user.profile.is_mainHr  %}
             <div class="col-md-6 mb-3">
                 <button class="btn btn-primary btn-block" onclick="window.location.href='{% url 'applied_jobs' %}'">All your applied Jobs</button>
             </div>
@@ -35,14 +35,220 @@
                     <button class="btn btn-primary btn-block" onclick="window.location.href='{% url 'view_job_applications' %}'">Show All Job Applications</button>
                 </div>
             {% endif %}
+            <div class="col-md-6 mb-3">
+                <button class="btn btn-primary btn-block" onclick="window.location.href='{% url 'my_event' %}'">My Event</button>
+            </div>
 
-            {% if user.profile.is_hr or user.profile.is_teamlead or user.profile.is_teamMember %}
-                <div class="col-md-6 mb-3">
-                    <button class="btn btn-primary btn-block" onclick="window.location.href='{% url 'view_scheduled_meetings' %}'">View Scheduled Meetings</button>
+            <div class="col-md-6 mb-3">
+                <button class="btn btn-primary btn-block" onclick="openMyCalendar()">My Calendar</button>
+            </div>
+
+            <div class="col-md-6 mb-3">
+                <button class="btn btn-primary btn-block" data-toggle="modal" data-target="#calendarSettingsModal">Calendar Settings</button>
+            </div>
+
+            <!-- Calendar Settings Modal -->
+            <div class="modal fade" id="calendarSettingsModal" tabindex="-1" role="dialog" aria-labelledby="calendarSettingsModalLabel" aria-hidden="true">
+                <div class="modal-dialog" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="calendarSettingsModalLabel">Calendar Settings</h5>
+                            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                        </div>
+                        <div class="modal-body">
+                            <!-- Include the form here -->
+                            <form method="post" action="{% url 'calendar_settings' %}">
+                                {% csrf_token %}
+                                <div class="form-group">
+                                    <label for="id_start_time">Start Time:</label>
+                                    <input type="time" name="start_time" id="id_start_time" class="form-control">
+                                </div>
+                                <div class="form-group">
+                                    <label for="id_end_time">End Time:</label>
+                                    <input type="time" name="end_time" id="id_end_time" class="form-control">
+                                </div>
+                                <div class="form-group">
+                                    <label for="id_snack_break_start">Snack Break Start:</label>
+                                    <input type="time" name="snack_break_start" id="id_snack_break_start" class="form-control">
+                                </div>
+                                <div class="form-group">
+                                    <label for="id_snack_break_end">Snack Break End:</label>
+                                    <input type="time" name="snack_break_end" id="id_snack_break_end" class="form-control">
+                                </div>
+                                <div class="form-group">
+                                    <label for="id_lunch_break_start">Lunch Break Start:</label>
+                                    <input type="time" name="lunch_break_start" id="id_lunch_break_start" class="form-control">
+                                </div>
+                                <div class="form-group">
+                                    <label for="id_lunch_break_end">Lunch Break End:</label>
+                                    <input type="time" name="lunch_break_end" id="id_lunch_break_end" class="form-control">
+                                </div>
+                                <div class="form-group">
+                                    <label for="id_holidays">Holidays:</label>
+                                    <input type="date" name="holidays" id="id_holidays" class="form-control">
+                                </div>
+                                
+                                <button type="submit" class="btn btn-primary">Save Settings</button>
+                            </form>
+                        </div>
+                    </div>
                 </div>
-            {% endif %}
-            
-
+            </div>
         </div>
     </div>
+
+    <script>
+        function openMyCalendar() {
+            $('#myCalendarModal').modal('show');
+        }
+    </script>
+    
+    <!-- Modal for the calendar -->
+    <!-- Add the meeting details modal -->
+    <div class="modal fade" id="myCalendarModal" tabindex="-1" role="dialog" aria-labelledby="myCalendarModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="myCalendarModalLabel">My Calendar</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" id="myCalendarCloseBtn">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <!-- Render the FullCalendar here -->
+                    <div id="myCalendar"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+<div class="modal fade" id="meetingDetailsModal" tabindex="-1" role="dialog" aria-labelledby="meetingDetailsModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="meetingDetailsModalLabel">Meeting Details</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close" id="meetingDetailsCloseBtn">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+                
+            </div>
+            <div class="modal-body">
+                <p><strong>Title:</strong> <span id="meetingDetailsTitle"></span></p>
+                <p><strong>Start Time:</strong> <span id="meetingDetailsStart"></span></p>
+                <p><strong>End Time:</strong> <span id="meetingDetailsEnd"></span></p>
+                <p><strong>Meeting Link:</strong> <a href="#" id="meetingDetailsLink" target="_blank">Click here</a></p>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+<!-- Add this CSS to show a pointer cursor for selectable dates -->
+<style>
+    .fc-day, .fc-content-skeleton {
+        cursor: pointer;
+    }
+</style>
+
+<!-- Your existing HTML and modal code -->
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        // Function to fetch meetings for the logged-in user
+        function getMyMeetings() {
+            $.ajax({
+                url: '{% url 'get_my_meetings' %}',
+                type: 'GET',
+                success: function (data) {
+                    // Update the FullCalendar events with the fetched data
+                    $('#myCalendar').fullCalendar('removeEvents');
+                    $('#myCalendar').fullCalendar('addEventSource', data.events);
+                    $('#myCalendar').fullCalendar('rerenderEvents');
+                    $('#myCalendar').fullCalendar('option', 'minTime', data.minTime);
+                    $('#myCalendar').fullCalendar('option', 'maxTime', data.maxTime);
+                },
+                error: function () {
+                    console.log('Error fetching meetings');
+                }
+            });
+        }
+
+        function openMeetingDetailsModal(event) {
+            // Check if the event is a regular meeting or blocked time
+            if (!event.blockedTime) {
+                $('#meetingDetailsTitle').text(event.title);
+                $('#meetingDetailsStart').text(event.start.format('MMMM D, YYYY h:mm A'));
+                $('#meetingDetailsEnd').text(event.end.format('MMMM D, YYYY h:mm A'));
+                $('#meetingDetailsLink').attr('href', event.url);
+    
+                $('#meetingDetailsModal').modal('show');
+            }
+        }
+    
+
+        // Function to handle date selection
+        // Function to handle date selection
+
+
+
+        // Initialize FullCalendar
+        $('#myCalendar').fullCalendar({
+            header: {
+                left: 'prev,next today',
+                center: 'title',
+                right: 'month,agendaWeek,agendaDay'
+            },
+            defaultView: 'month',
+            editable: false,
+            selectable: true,// Callback for date selection
+            slotDuration: '00:10:00',
+            events: [], 
+            eventClick: function (calEvent, jsEvent, view) {
+                jsEvent.preventDefault();
+
+                // Handle event click here
+                openMeetingDetailsModal(calEvent);
+            },
+            dayRender: function (date, cell) {
+                // Handle day render here
+                if (date.day() === 0) {
+                    cell.css('background-color', 'blue');
+                }
+            },
+            eventRender: function (event, element, view) {
+                if (event.blockedTime && view.name === 'month') {
+                    // Hide blocked time on month view
+                    return false;
+                }
+            }
+        });
+
+        // Show the modal when the button is clicked
+        $('#myCalendarModal').on('show.bs.modal', function () {
+            getMyMeetings(); 
+        });
+
+        // Fix for the close button in the meeting details modal
+        $('#meetingDetailsModal').on('hidden.bs.modal', function () {
+            // Clear the modal content when it is hidden
+            $('#meetingDetailsTitle').text('');
+            $('#meetingDetailsStart').text('');
+            $('#meetingDetailsEnd').text('');
+            $('#meetingDetailsLink').attr('href', '#');
+        });
+
+        $('#meetingDetailsCloseBtn').on('click', function () {
+            $('#meetingDetailsModal').modal('hide');
+        });
+
+        $('#myCalendarCloseBtn').on('click', function () {
+            $('#myCalendarModal').modal('hide');
+        });
+    });
+</script>
+
+
+
 {% endblock %}

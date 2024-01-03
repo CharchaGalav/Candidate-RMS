@@ -4,6 +4,7 @@ from django.contrib.auth.models import User
 from phonenumber_field.modelfields import PhoneNumberField 
 from autoslug import AutoSlugField
 from django.urls import reverse
+import itertools
 
 
 class Profile(models.Model):
@@ -16,7 +17,6 @@ class Profile(models.Model):
     is_manager = models.BooleanField(default=False)
     is_mainHr = models.BooleanField(default=False)
     is_teamMember = models.BooleanField(default=False)
-    is_onboardingHr = models.BooleanField(default=False)
     released_jobs = models.ForeignKey('Job', on_delete=models.SET_NULL, null=True, blank=True)
 
     def __str__(self):
@@ -91,7 +91,7 @@ class JobApplication(models.Model):
 class MeetingSchedule(models.Model):
     job_application = models.ForeignKey('JobApplication', on_delete=models.CASCADE)
     scheduled_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
-    scheduled_meet_date = models.DateTimeField(null=True, blank=True)
+    scheduled_meet_date = models.DateField(null=True, blank=True)
     scheduled_meet_time = models.TimeField(null=True, blank=True)
     scheduled_meet_link = models.URLField(max_length=200, null=True, blank=True)
     scheduled_meet_attendees = models.ManyToManyField(User, related_name='meeting_attendees', blank=True)
@@ -157,3 +157,38 @@ class EmailLog(models.Model):
         return f"{self.sender_name} to {self.applicant.user.username} - {self.subject}"
     
 
+class UserCalendarSettings(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='calendar_settings')
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    snack_break_start = models.TimeField()
+    snack_break_end = models.TimeField()
+    lunch_break_start = models.TimeField()
+    lunch_break_end = models.TimeField()
+    holidays = models.DateField(blank=True, null=True)
+
+    def __str__(self):
+        return f"Calendar Settings for {self.user.username}"
+
+class CalendarEvent(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    title = models.CharField(max_length=255)
+    link = models.URLField()
+    start = models.DateField()
+    end = models.DateField()
+    duration_minutes = models.IntegerField()
+    unique_url = models.SlugField(unique=True, blank=True, null=True, max_length=100)
+    attendees = models.TextField(blank=True, null=True)
+
+    def __str__(self):
+        return self.title
+
+    def save(self, *args, **kwargs):
+        if not self.id:
+        # Ensure a unique URL based on the title
+            self.unique_url = orig = slugify(self.title)
+            for x in itertools.count(1):
+                if not CalendarEvent.objects.filter(unique_url=self.unique_url).exists():
+                    break
+                self.unique_url = '%s-%d' % (orig, x)
+        super().save(*args, **kwargs)

@@ -117,3 +117,20 @@ class ManagerDecisionForm(forms.ModelForm):
 class EmailForm(forms.Form):
     subject = forms.CharField(max_length=255)
     message = forms.CharField(widget=forms.Textarea)
+
+class UserCalendarSettingsForm(forms.ModelForm):
+    
+    class Meta:
+        model = UserCalendarSettings
+        exclude = ['user']
+
+class CalendarEventForm(forms.ModelForm):
+    class Meta:
+        model = CalendarEvent
+        fields = ['title', 'link', 'start', 'end', 'duration_minutes', 'unique_url']
+
+        widgets = {
+            'start': forms.DateInput(attrs={'type': 'date'}),
+            'end': forms.DateInput(attrs={'type': 'time'}),
+        }
+    

@@ -13,7 +13,7 @@
                 <p class="ml-2"><h3>{{ job.job_closing_date }}</h3></p>
             </div>
         </div>
-        {% if not request.user.profile.is_hr and not request.user.profile.is_teamlead and not request.user.profile.is_teamMember and not request.user.profile.is_manager and not request.user.profile.is_mainHr and not request.user.profile.is_onboardingHr %}
+        {% if not request.user.profile.is_hr and not request.user.profile.is_teamlead and not request.user.profile.is_teamMember and not request.user.profile.is_manager and not request.user.profile.is_mainHr  %}
             {% if user_has_applied %}
                 <button class="btn btn-secondary mt-3" disabled>Already Applied</button>
             {% else %}

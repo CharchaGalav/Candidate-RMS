@@ -15,6 +15,7 @@ from .models import *
 import json
 
 
+
 class home(View):
     template_name = 'home.html'
 
@@ -835,5 +836,354 @@ class SentByMainHr(UserPassesTestMixin, View):
         return render(request, self.template_name, {'job_applications': job_applications})
 
 
+class CalendarSettingsView(View):
+    template_name = 'home.html'
 
- 
+    def get(self, request, *args, **kwargs):
+        form = UserCalendarSettingsForm()
+        return render(request, self.template_name, {'form': form})
+
+    def post(self, request, *args, **kwargs):
+        form = UserCalendarSettingsForm(request.POST)
+        if form.is_valid():
+            calendar_settings = form.save(commit=False)
+            calendar_settings.user = request.user
+            calendar_settings.save()
+            return redirect('home')  # Redirect to the same page after form submission
+        return render(request, self.template_name, {'form': form})
+
+
+from django.http import JsonResponse
+
+from datetime import datetime, timedelta
+
+
+
+class GetMyMeetingsView(View):
+    def get(self, request, *args, **kwargs):
+        user = self.request.user
+
+        try:
+            calendar_settings = UserCalendarSettings.objects.get(user=user)
+        except UserCalendarSettings.DoesNotExist:
+            calendar_settings = None
+
+        if hasattr(user, 'profile'):
+            if user.profile.is_teamlead or user.profile.is_teamMember:
+                calendar_meetings = CalendarEvent.objects.filter(attendees__icontains=f'"{user.username}"')
+                schedule_meetings = MeetingSchedule.objects.filter(scheduled_meet_attendees=user)
+                meetings = list(calendar_meetings) + list(schedule_meetings)
+            elif user.profile.is_manager or user.profile.is_mainHr:
+                manager_meetings = ManagerMainHrDecision.objects.filter(scheduled_by=user)
+                calendar_meetings = CalendarEvent.objects.filter(attendees__icontains=f'"{user.username}"')
+                meetings = list(calendar_meetings) + list(manager_meetings)
+            else:
+                calendar_meetings = CalendarEvent.objects.filter(attendees__icontains=f'"{user.username}"')
+                meetings = list(calendar_meetings)
+        else:
+            schedule_meetings = MeetingSchedule.objects.filter(job_application__username=user)
+            manager_meetings = ManagerMainHrDecision.objects.filter(applicant__user=user)
+            calendar_meetings = CalendarEvent.objects.filter(attendees__icontains=f'"{user.username}"')
+            meetings = list(schedule_meetings) + list(manager_meetings) + list(calendar_meetings)
+
+        events = []
+
+        for meeting in meetings:
+            if isinstance(meeting, MeetingSchedule):
+                # For MeetingSchedule model
+                start_datetime = datetime.combine(meeting.scheduled_meet_date, meeting.scheduled_meet_time)
+                end_datetime = start_datetime + timedelta(minutes=30)
+
+                event = {
+                    'title': f"Meeting for {meeting.job_application.user.username}",
+                    'start': start_datetime.strftime('%Y-%m-%dT%H:%M:%S'),
+                    'end': end_datetime.strftime('%Y-%m-%dT%H:%M:%S'),
+                    'url': meeting.scheduled_meet_link,
+                }
+            elif isinstance(meeting, ManagerMainHrDecision):
+                # For ManagerMainHrDecision model
+                start_datetime = datetime.combine(meeting.meeting_date, meeting.meeting_time)
+                end_datetime = start_datetime + timedelta(minutes=30)
+
+                event = {
+                    'title': f"Meeting for {meeting.applicant.user.username}",
+                    'start': start_datetime.strftime('%Y-%m-%dT%H:%M:%S'),
+                    'end': end_datetime.strftime('%Y-%m-%dT%H:%M:%S'),
+                    'url': meeting.meeting_link,
+                }
+
+            elif isinstance(meeting, CalendarEvent):
+                attendees = json.loads(meeting.attendees) if meeting.attendees else []
+                if meeting.user == request.user:  # Check if current user is the meeting creator
+                    for attendee in attendees:
+                        selected_date = attendee.get('selected_date', '')
+                        selected_slot = attendee.get('selected_slot', '')
+                        if selected_date and selected_slot:
+                            event = {
+                                'title': f"Meeting for {meeting.title}",
+                                'start': f"{selected_date}T{selected_slot.split(' - ')[0]}",
+                                'end': f"{selected_date}T{selected_slot.split(' - ')[1]}",
+                                'url': meeting.link,
+                            }
+                            events.append(event)
+                else:
+                    for attendee in attendees:
+                        
+                        if attendee.get('name') == user.username:
+                            selected_date = attendee.get('selected_date', '')
+                            selected_slot = attendee.get('selected_slot', '')
+                            
+                            event = {
+                                'title': f"Meeting for {meeting.title}",
+                                'start': f"{selected_date}T{selected_slot.split(' - ')[0]}",
+                                'end': f"{selected_date}T{selected_slot.split(' - ')[1]}",
+                                'url': meeting.link,
+                            }
+
+            events.append(event)
+
+
+
+        if calendar_settings:
+            blocked_times = self.get_blocked_times(calendar_settings)
+            events.extend(blocked_times)
+
+        return JsonResponse({
+            'events': events,  # Your existing events data
+            'minTime': calendar_settings.start_time.strftime('%H:%M:%S') if calendar_settings else '08:00:00',
+            'maxTime': calendar_settings.end_time.strftime('%H:%M:%S') if calendar_settings else '17:00:00',
+            
+        })
+
+    def get_blocked_times(self, calendar_settings):
+        blocked_times = []
+
+        def add_blocked_time(date, start_time, end_time):
+            start_datetime = datetime.combine(date, start_time)
+            end_datetime = datetime.combine(date, end_time)
+            i = 0 if start_time == calendar_settings.snack_break_start else 1
+            blocked_times.append({
+                'title': 'Snack Break' if i == 0 else 'Lunch Break',
+                'start': start_datetime.strftime('%Y-%m-%dT%H:%M:%S'),
+                'end': end_datetime.strftime('%Y-%m-%dT%H:%M:%S'),
+                'color': 'red',  # Set color for blocked times
+                'blockedTime': True,
+            })
+            
+
+        current_date = datetime.now().date()
+        for i in range(365):  # This example considers the next 365 days
+            date = current_date + timedelta(days=i)
+            add_blocked_time(date, calendar_settings.snack_break_start, calendar_settings.snack_break_end)
+            add_blocked_time(date, calendar_settings.lunch_break_start, calendar_settings.lunch_break_end)
+
+        return blocked_times
+    
+
+class CreateCalendarEventView(View):
+    template_name = 'home.html'  # Replace with your template name
+
+    def get(self, request, *args, **kwargs):
+        form = CalendarEventForm()
+        return render(request, self.template_name, {'form': form})
+
+    def post(self, request, *args, **kwargs):
+        form = CalendarEventForm(request.POST)
+        if form.is_valid():
+            form.instance.user = request.user
+            form.save()
+            return redirect('home')  # Replace with the URL to redirect after form submission
+        return render(request, self.template_name, {'form': form})
+
+
+from django.contrib.auth.decorators import login_required
+from django.utils.decorators import method_decorator
+
+@method_decorator(login_required, name='dispatch')
+class SharedCalendarView(View):
+    template_name = 'shared_calendar.html'
+
+    def get(self, request, unique_url):
+        calendar_event = get_object_or_404(CalendarEvent, unique_url=unique_url)
+
+        # Get user's calendar settings and meetings
+        user = calendar_event.user  # Assuming you have the user object
+        duration_minutes = calendar_event.duration_minutes
+        calendar_settings = UserCalendarSettings.objects.get(user=user)
+        if hasattr(user, 'profile'):
+            if user.profile.is_teamlead or user.profile.is_teamMember:
+                calendar_meetings = CalendarEvent.objects.filter(attendees__icontains=f'"{user.username}"')
+                schedule_meetings = MeetingSchedule.objects.filter(scheduled_meet_attendees=user)
+                meetings = list(calendar_meetings) + list(schedule_meetings)
+            elif user.profile.is_manager or user.profile.is_mainHr:
+                calendar_meetings = CalendarEvent.objects.filter(attendees__icontains=f'"{user.username}"')
+                manager_meetings = ManagerMainHrDecision.objects.filter(scheduled_by=user)
+                meetings = list(calendar_meetings) + list(manager_meetings)
+            else:
+                meetings = CalendarEvent.objects.filter(attendees__icontains=f'"{user.username}"')
+        else:
+            schedule_meetings = MeetingSchedule.objects.filter(job_application__username=user)
+            manager_meetings = ManagerMainHrDecision.objects.filter(applicant__user=user)
+            calendar_meetings = CalendarEvent.objects.filter(attendees__icontains=f'"{user.username}"')
+            meetings = list(schedule_meetings) + list(manager_meetings) + list(calendar_meetings)
+        # meetings = MeetingSchedule.objects.filter(scheduled_meet_attendees=user)  # Get all meetings, not limited to date
+        print(meetings)
+        # Calculate available time slots for each date within the event's range
+        available_time_slots = []
+        current_date = calendar_event.start
+        while current_date <= calendar_event.end:
+            date_available_time_slots = self.calculate_available_time_slots_for_date(current_date, calendar_settings, meetings, duration_minutes, user)
+            available_time_slots.append((current_date, date_available_time_slots))
+            current_date += timedelta(days=1)
+
+
+        if request.GET.get('action') == 'get_available_slots':
+            date = request.GET.get('date')
+            date_obj = datetime.strptime(date, '%Y-%m-%d').date()
+            matching_slots = [slots for date, slots in available_time_slots if date == date_obj]
+            # print(matching_slots[0])
+            booked_slots = self.get_booked_slots(calendar_event.attendees, date_obj)
+            print(booked_slots)
+            matching_slots[0] = [slot for slot in matching_slots[0] if slot not in booked_slots]
+            print(matching_slots[0])
+            return JsonResponse({'available_slots': matching_slots[0] if matching_slots else []})
+        
+        return render(request, self.template_name, {
+            'start_date': calendar_event.start,
+            'end_date': calendar_event.end,
+            
+            'calendar_event': calendar_event,
+            'available_time_slots': available_time_slots,
+        })
+
+    def calculate_available_time_slots_for_date(self, date, calendar_settings, meetings, event_duration_minutes, user):
+        available_time_slots = []
+        current_datetime = datetime.combine(date, calendar_settings.start_time)  
+        end_datetime = datetime.combine(date, calendar_settings.end_time)
+
+        while current_datetime < end_datetime:
+            start_datetime = current_datetime
+            while current_datetime < end_datetime and not self.is_break_time(current_datetime.time(), calendar_settings) and not self.is_meeting_time(current_datetime.time(), meetings, date, user):
+                current_datetime += timedelta(minutes=1)
+
+            if start_datetime < current_datetime:
+                slot_end_datetime = start_datetime + timedelta(minutes=event_duration_minutes)
+                while slot_end_datetime <= current_datetime:
+                    available_time_slots.append((start_datetime.time(), slot_end_datetime.time()))  # Extract time portions
+                    start_datetime = slot_end_datetime
+                    slot_end_datetime += timedelta(minutes=event_duration_minutes)
+
+            # Advance to the end of the current break or meeting
+            while self.is_break_time(current_datetime.time(), calendar_settings) or self.is_meeting_time(current_datetime.time(), meetings, date, user):
+                current_datetime += timedelta(minutes=1)
+
+        return available_time_slots
+
+    def is_break_time(self, time, calendar_settings):
+        return (
+            (calendar_settings.snack_break_start <= time < calendar_settings.snack_break_end )
+            or (calendar_settings.lunch_break_start <= time < calendar_settings.lunch_break_end )
+        )
+
+    # def is_meeting_time(self, time, meetings, date):
+    #     return any(
+    #         meeting.scheduled_meet_date == date and
+    #         datetime.combine(date, meeting.scheduled_meet_time) <= datetime.combine(date, time) < datetime.combine(date, meeting.scheduled_meet_time) + timedelta(minutes=30)
+    #         for meeting in meetings
+    #     )
+    # def is_meeting_time(self, time, meetings, date):
+    #     return any(
+    #         (meeting.scheduled_meet_date == date and
+    #         datetime.combine(date, meeting.scheduled_meet_time) <= datetime.combine(date, time) < datetime.combine(date, meeting.scheduled_meet_time) + timedelta(minutes=30))
+    #         if hasattr(meeting, 'scheduled_meet_date') and hasattr(meeting, 'scheduled_meet_time') else  # MeetingSchedule
+    #         (meeting.meeting_date == date and
+    #         datetime.combine(date, meeting.meeting_time) <= datetime.combine(date, time) < datetime.combine(date, meeting.meeting_time) + timedelta(minutes=30))
+    #         if hasattr(meeting, 'meeting_date') and hasattr(meeting, 'meeting_time') else  # ManagerMainHrDecision
+    #         (meeting.start == date and
+    #         datetime.combine(date, meeting.start_time) <= datetime.combine(date, time) < datetime.combine(date, meeting.end_time))  # CalendarEvent
+    #         for meeting in meetings
+    #     )
+    def is_meeting_time(self, time, meetings, date, user):
+        return any(
+            (meeting.scheduled_meet_date == date and
+            datetime.combine(date, meeting.scheduled_meet_time) <= datetime.combine(date, time) < datetime.combine(date, meeting.scheduled_meet_time) + timedelta(minutes=30))
+            if hasattr(meeting, 'scheduled_meet_date') and hasattr(meeting, 'scheduled_meet_time') else  # MeetingSchedule
+            (meeting.meeting_date == date and
+            datetime.combine(date, meeting.meeting_time) <= datetime.combine(date, time) < datetime.combine(date, meeting.meeting_time) + timedelta(minutes=30))
+            if hasattr(meeting, 'meeting_date') and hasattr(meeting, 'meeting_time') else  # ManagerMainHrDecision
+            (isinstance(meeting, CalendarEvent) and  # CalendarEvent
+            any(
+                datetime.combine(selected_date, selected_slot.split(' - ')[0]) <= datetime.combine(date, time) < datetime.combine(selected_date, selected_slot.split(' - ')[1])
+                for attendee in json.loads(meeting.attendees) if attendee.get('name') == user
+                for selected_date, selected_slot in attendee.items() if selected_date and selected_slot
+            ))
+            for meeting in meetings
+        )
+    
+    def get_booked_slots(self, attendees_json, date):
+        print(attendees_json, date) 
+        attendees = json.loads(attendees_json) if attendees_json else []
+        
+        booked_slots = []
+        for attendee in attendees:
+            if attendee.get('selected_date') == str(date):
+                start_time, end_time = map(lambda x: datetime.strptime(x, '%H:%M:%S').time(), attendee.get('selected_slot').split(' - '))
+                booked_slots.append((start_time, end_time))
+        # print(booked_slots)
+        return booked_slots
+    
+    
+
+class MyEvents(View):
+    template_name = 'my_event.html'
+
+    def get(self, request, *args, **kwargs):
+        form = CalendarEventForm()
+        user_events = CalendarEvent.objects.filter(user=request.user)
+        return render(request, self.template_name, {'form': form, 'user_events': user_events})
+
+    def post(self, request, *args, **kwargs):
+        form = CalendarEventForm(request.POST)
+        if form.is_valid():
+            form.instance.user = request.user
+            form.save()
+            return redirect('home')  # Replace with the URL to redirect after form submission
+        return render(request, self.template_name, {'form': form})
+
+
+class BookingConfirmationView(View):
+    template_name = 'booking_confirmation.html'
+
+    def post(self, request):
+        selected_date = request.POST.get('selected_date')
+        selected_slot = request.POST.get('selected_slot')
+        unique_url = request.POST.get('unique_url')
+        user = request.user
+        email = user.email
+
+        if 'confirm_booking' in request.POST:
+            calendar_event = CalendarEvent.objects.get(unique_url=unique_url)
+            attendees = json.loads(calendar_event.attendees) if calendar_event.attendees else []
+            attendees.append({
+                'name': user.username,
+                'email': user.email,
+                'selected_date': selected_date,
+                'selected_slot': selected_slot,
+            })
+            calendar_event.attendees = json.dumps(attendees)
+            calendar_event.save()
+
+            
+            return redirect('home')
+        
+        context = {
+                'selected_date': selected_date,
+                'selected_slot': selected_slot,
+                'user': user,
+                'email': email,
+                'unique_url':unique_url,
+            }
+        return render(request, self.template_name, context)
+        
+        # Redirect to the home page after Confirm Booking is clicked
+        

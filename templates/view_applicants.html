@@ -125,21 +125,19 @@
                                                             <p>Recent Date: {{ value.1 }}</p>
                                                             <p>Viewed On: {{ value.2 }}</p>
                                                             <p>Status: {{ value.3 }}</p>
-                                                            {% if value.3 == "Rejected" %}
+                                                            {% if value.3 == "Rejected" or value.3 == "Accepted" %}
                                                                 <p>Review Heading: {{ value.4 }}</p>
                                                                 <p>Review Reason: {{ value.5 }}</p>
                                                             {% endif %}
-                                                            {% if value.3 != "Rejected" %}
+                                                            {% if value.6  %}
                                                                 {% if value|length > 4 %}
                                                                     <h5>Meeting Details:</h5>
-                                                                    <p>Meeting On: {{ value.4.meeting_on }}</p>
-                                                                    <p>Meeting Mail Status: {{ value.4.meeting_mail.0 }}</p>
-                                                                    <p>Meeting Mail Date: {{ value.4.meeting_mail.1 }}</p>
-                                                                    <p>Forward Status: {{ value.4.forward_status.0 }}</p>
-                                                                    <p>Forward Status Date: {{ value.4.forward_status.1 }}</p>
-
-                                                                    <!-- Fix the join syntax here -->
-                                                                    <p>Forward Members: {{ value.4.forward_members|join:', ' }}</p>
+                                                                    <p>Meeting On: {{ value.6.meeting_on }}</p>
+                                                                    <p>Meeting Mail Status: {{ value.6.meeting_mail.0 }}</p>
+                                                                    <p>Meeting Mail Date: {{ value.6.meeting_mail.1 }}</p>
+                                                                    <p>Forward Status: {{ value.6.forward_status.0 }}</p>
+                                                                    <p>Forward Status Date: {{ value.6.forward_status.1 }}</p>
+                                                                    <p>Forward Members: {{ value.6.forward_members|join:', ' }}</p>
                                                                 {% endif %}
                                                             {% endif %}
 
@@ -944,20 +942,10 @@
 
 
                                         {% if user.profile.is_manager %}
-                                        {% comment %} <form method="post" >
-                                            {% csrf_token %}
-                                            <input type="hidden" name="job_application_slug" value="{{ applicant.applicant.slug }}"> {% endcomment %}
                                             <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#manageracceptModal{{ applicant.applicant.slug }}"  {% if applicant.applicant.manager_is_accepted or applicant.applicant.rejectiondetails_set.exists  %}disabled{% endif %}> Forward to Main HR </button>
                                             
-                                        {% comment %} </form> {% endcomment %}
-                                        {% elif user.profile.is_mainHr %}
-                                        {% comment %} <form method="post" >
-                                            {% csrf_token %}
-                                            <input type="hidden" name="job_application_slug" value="{{ applicant.applicant.slug }}"> {% endcomment %}
-                                            {% comment %} <input type="submit" name="manageraccept" class="btn btn-success" value="Accept" {% if applicant.applicant.mainHr_is_accepted or applicant.applicant.rejectiondetails_set.exists  %}disabled{% endif %}>  {% endcomment %}
-                                            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#manageracceptModal{{ applicant.applicant.slug }}" {% if applicant.applicant.mainHr_is_accepted or applicant.applicant.rejectiondetails_set.exists  %}disabled{% endif %}>Accept </button>
+                                        {% elif user.profile.is_mainHr %}<button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#manageracceptModal{{ applicant.applicant.slug }}" {% if applicant.applicant.mainHr_is_accepted or applicant.applicant.rejectiondetails_set.exists  %}disabled{% endif %}>Accept </button>
                                             
-                                        {% comment %} </form> {% endcomment %}
                                         {% endif %}
                                         <div class="modal fade" id="manageracceptModal{{ applicant.applicant.slug }}" tabindex="-1" aria-labelledby="manageracceptModalLabel{{ applicant.applicant.slug }}" aria-hidden="true">
                                             <div class="modal-dialog">
