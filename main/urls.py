@@ -26,6 +26,7 @@ urlpatterns = [
     path('create_event/', CreateCalendarEventView.as_view(), name='create_calendar_event'),
     path('shared_calendar/<str:unique_url>/', SharedCalendarView.as_view(), name='shared_calendar'),
     path('my-event/', MyEvents.as_view(), name='my_event'),
+    path('get_dynamic_meetings/<int:event_id>/', myeventmeetings.as_view(), name='get_event_meetings'),
     path('booking_confirmation/', BookingConfirmationView.as_view(), name='booking_confirmation'),
     
 

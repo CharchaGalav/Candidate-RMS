@@ -835,20 +835,35 @@ class SentByMainHr(UserPassesTestMixin, View):
         job_applications = JobApplication.objects.filter(mainHr_to_hr=True)
         return render(request, self.template_name, {'job_applications': job_applications})
 
-
 class CalendarSettingsView(View):
     template_name = 'home.html'
 
     def get(self, request, *args, **kwargs):
+        print("calle")
         form = UserCalendarSettingsForm()
-        return render(request, self.template_name, {'form': form})
+        
+        # Fetch existing settings for the logged-in user
+        existing_settings = UserCalendarSettings.objects.filter(user=request.user).first()
+        if not existing_settings:
+            print("No existing settings found for the user.")
 
+        return render(request, self.template_name, {'form': form, 'existing_settings': existing_settings})
+        
     def post(self, request, *args, **kwargs):
         form = UserCalendarSettingsForm(request.POST)
         if form.is_valid():
+            existing_settings = UserCalendarSettings.objects.filter(user=request.user).first()
+
+            # If existing settings exist, update them; otherwise, create new settings
+            if existing_settings:
+                form = UserCalendarSettingsForm(request.POST, instance=existing_settings)
+            else:
+                form = UserCalendarSettingsForm(request.POST)
+            # print(existing_settings)
             calendar_settings = form.save(commit=False)
             calendar_settings.user = request.user
             calendar_settings.save()
+
             return redirect('home')  # Redirect to the same page after form submission
         return render(request, self.template_name, {'form': form})
 
@@ -871,19 +886,23 @@ class GetMyMeetingsView(View):
         if hasattr(user, 'profile'):
             if user.profile.is_teamlead or user.profile.is_teamMember:
                 calendar_meetings = CalendarEvent.objects.filter(attendees__icontains=f'"{user.username}"')
+                calendar_meetings = CalendarEvent.objects.filter(user=user) 
                 schedule_meetings = MeetingSchedule.objects.filter(scheduled_meet_attendees=user)
                 meetings = list(calendar_meetings) + list(schedule_meetings)
             elif user.profile.is_manager or user.profile.is_mainHr:
                 manager_meetings = ManagerMainHrDecision.objects.filter(scheduled_by=user)
                 calendar_meetings = CalendarEvent.objects.filter(attendees__icontains=f'"{user.username}"')
+                calendar_meetings = CalendarEvent.objects.filter(user=user) 
                 meetings = list(calendar_meetings) + list(manager_meetings)
             else:
                 calendar_meetings = CalendarEvent.objects.filter(attendees__icontains=f'"{user.username}"')
+                calendar_meetings = CalendarEvent.objects.filter(user=user) 
                 meetings = list(calendar_meetings)
         else:
             schedule_meetings = MeetingSchedule.objects.filter(job_application__username=user)
             manager_meetings = ManagerMainHrDecision.objects.filter(applicant__user=user)
             calendar_meetings = CalendarEvent.objects.filter(attendees__icontains=f'"{user.username}"')
+            calendar_meetings = CalendarEvent.objects.filter(user=user) 
             meetings = list(schedule_meetings) + list(manager_meetings) + list(calendar_meetings)
 
         events = []
@@ -914,6 +933,7 @@ class GetMyMeetingsView(View):
 
             elif isinstance(meeting, CalendarEvent):
                 attendees = json.loads(meeting.attendees) if meeting.attendees else []
+                print(request.user, meeting.user)
                 if meeting.user == request.user:  # Check if current user is the meeting creator
                     for attendee in attendees:
                         selected_date = attendee.get('selected_date', '')
@@ -1138,6 +1158,7 @@ class MyEvents(View):
     template_name = 'my_event.html'
 
     def get(self, request, *args, **kwargs):
+        
         form = CalendarEventForm()
         user_events = CalendarEvent.objects.filter(user=request.user)
         return render(request, self.template_name, {'form': form, 'user_events': user_events})
@@ -1149,6 +1170,37 @@ class MyEvents(View):
             form.save()
             return redirect('home')  # Replace with the URL to redirect after form submission
         return render(request, self.template_name, {'form': form})
+
+
+class myeventmeetings(View):
+    def get(self, request, event_id, *args, **kwargs):
+        meetings = CalendarEvent.objects.filter(id=event_id, user=request.user)
+
+        
+
+        # Create a list of events in the required format
+        events = []
+
+        for meeting in meetings:
+            attendees = json.loads(meeting.attendees) if meeting.attendees else []
+            print(request.user, meeting.user)
+            if meeting.user == request.user:  # Check if current user is the meeting creator
+                for attendee in attendees:
+                    selected_date = attendee.get('selected_date', '')
+                    selected_slot = attendee.get('selected_slot', '')
+                    if selected_date and selected_slot:
+                        event = {
+                            'title': f"Meeting for {meeting.title}",
+                            'start': f"{selected_date}T{selected_slot.split(' - ')[0]}",
+                            'end': f"{selected_date}T{selected_slot.split(' - ')[1]}",
+                            'url': meeting.link,
+                        }
+                        events.append(event)
+
+        return JsonResponse({
+            'events': events,
+            # Include other parameters you need
+        })
 
 
 class BookingConfirmationView(View):

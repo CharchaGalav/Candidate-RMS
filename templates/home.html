@@ -104,9 +104,18 @@
             $('#myCalendarModal').modal('show');
         }
     </script>
+    <!-- Add this CSS to show a pointer cursor for selectable dates -->
+<style>
+    .fc-day, .fc-content-skeleton {
+        cursor: pointer;
+    }
+</style>
+
+<!-- Your existing HTML and modal code -->
+
+
+
     
-    <!-- Modal for the calendar -->
-    <!-- Add the meeting details modal -->
     <div class="modal fade" id="myCalendarModal" tabindex="-1" role="dialog" aria-labelledby="myCalendarModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg" role="document">
             <div class="modal-content">
@@ -157,6 +166,7 @@
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         // Function to fetch meetings for the logged-in user
+        
         function getMyMeetings() {
             $.ajax({
                 url: '{% url 'get_my_meetings' %}',
@@ -187,12 +197,6 @@
             }
         }
     
-
-        // Function to handle date selection
-        // Function to handle date selection
-
-
-
         // Initialize FullCalendar
         $('#myCalendar').fullCalendar({
             header: {
@@ -224,6 +228,28 @@
                 }
             }
         });
+        $('#calendarSettingsModal').on('show.bs.modal', function () {
+            $.ajax({
+                url: '{% url 'calendar_settings' %}',
+                type: 'GET',
+                success: function (data) {
+                    // Check if existing_settings is defined and not null
+                    if (data.existing_settings) {
+                        // Populate the form with existing values
+                        $('#id_start_time').val(data.existing_settings.start_time);
+                        $('#id_end_time').val(data.existing_settings.end_time);
+                        $('#id_snack_break_start').val(data.existing_settings.snack_break_start);
+                        $('#id_snack_break_end').val(data.existing_settings.snack_break_end);
+                        $('#id_lunch_break_start').val(data.existing_settings.lunch_break_start);
+                        $('#id_lunch_break_end').val(data.existing_settings.lunch_break_end);
+                        $('#id_holidays').val(data.existing_settings.holidays);
+                    }
+                },
+                error: function () {
+                    console.log('Error fetching calendar settings');
+                }
+            });
+        });
 
         // Show the modal when the button is clicked
         $('#myCalendarModal').on('show.bs.modal', function () {
@@ -248,7 +274,5 @@
         });
     });
 </script>
-
-
 
 {% endblock %}
